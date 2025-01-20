@@ -1,9 +1,8 @@
-import 'package:flutter/widgets.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:dartchess/dartchess.dart';
 import 'package:deep_pick/deep_pick.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-
+import 'package:flutter/widgets.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:lichess_mobile/src/styles/lichess_icons.dart';
 
 part 'chess.freezed.dart';
@@ -16,31 +15,38 @@ typedef UCIMove = String;
 @Freezed(fromJson: true, toJson: true)
 class SanMove with _$SanMove {
   const SanMove._();
-  const factory SanMove(
-    String san,
-    @JsonKey(fromJson: _moveFromJson, toJson: _moveToJson) Move move,
-  ) = _SanMove;
+  const factory SanMove(String san, @MoveConverter() Move move) = _SanMove;
 
-  factory SanMove.fromJson(Map<String, dynamic> json) =>
-      _$SanMoveFromJson(json);
+  factory SanMove.fromJson(Map<String, dynamic> json) => _$SanMoveFromJson(json);
 
   bool get isCheck => san.contains('+');
   bool get isCapture => san.contains('x');
 }
 
-String _moveToJson(Move move) => move.uci;
-// assume we are serializing only valid uci strings
-Move _moveFromJson(String uci) => Move.fromUci(uci)!;
+class MoveConverter implements JsonConverter<Move, String> {
+  const MoveConverter();
+
+  // assume we are serializing only valid uci strings
+  @override
+  Move fromJson(String json) => Move.parse(json)!;
+
+  @override
+  String toJson(Move object) => object.uci;
+}
 
 /// Alternative castling uci notations.
-const altCastles = {
-  'e1a1': 'e1c1',
-  'e1h1': 'e1g1',
-  'e8a8': 'e8c8',
-  'e8h8': 'e8g8',
-};
+const altCastles = {'e1a1': 'e1c1', 'e1h1': 'e1g1', 'e8a8': 'e8c8', 'e8h8': 'e8g8'};
 
-const ISet<Variant> supportedVariants = ISetConst({
+/// Returns `true` if the move is a pawn promotion move that is not yet promoted.
+bool isPromotionPawnMove(Position position, NormalMove move) {
+  return move.promotion == null &&
+      position.board.roleAt(move.from) == Role.pawn &&
+      ((move.to.rank == Rank.first && position.turn == Side.black) ||
+          (move.to.rank == Rank.eighth && position.turn == Side.white));
+}
+
+/// Set of supported variants for reading a game (not playing).
+const ISet<Variant> readSupportedVariants = ISetConst({
   Variant.standard,
   Variant.chess960,
   Variant.fromPosition,
@@ -49,6 +55,13 @@ const ISet<Variant> supportedVariants = ISetConst({
   Variant.threeCheck,
   Variant.racingKings,
   Variant.horde,
+});
+
+/// Set of supported variants for playing a game.
+const ISet<Variant> playSupportedVariants = ISetConst({
+  Variant.standard,
+  Variant.chess960,
+  Variant.fromPosition,
 });
 
 enum Variant {
@@ -68,27 +81,29 @@ enum Variant {
   final String label;
   final IconData icon;
 
-  bool get isSupported => supportedVariants.contains(this);
+  bool get isReadSupported => readSupportedVariants.contains(this);
+
+  bool get isPlaySupported => playSupportedVariants.contains(this);
 
   static final IMap<String, Variant> nameMap = IMap(values.asNameMap());
 
-  static Variant fromRules(Rules rules) {
-    switch (rules) {
-      case Rules.chess:
+  static Variant fromRule(Rule rule) {
+    switch (rule) {
+      case Rule.chess:
         return Variant.standard;
-      case Rules.antichess:
+      case Rule.antichess:
         return Variant.antichess;
-      case Rules.kingofthehill:
+      case Rule.kingofthehill:
         return Variant.kingOfTheHill;
-      case Rules.threecheck:
+      case Rule.threecheck:
         return Variant.threeCheck;
-      case Rules.atomic:
+      case Rule.atomic:
         return Variant.atomic;
-      case Rules.horde:
+      case Rule.horde:
         return Variant.horde;
-      case Rules.racingKings:
+      case Rule.racingKings:
         return Variant.racingKings;
-      case Rules.crazyhouse:
+      case Rule.crazyhouse:
         return Variant.crazyhouse;
     }
   }
@@ -101,6 +116,9 @@ enum Variant {
       case Variant.standard:
         return Chess.initial;
       case Variant.chess960:
+        throw ArgumentError(
+          'Chess960 has not single initial position, use randomChess960Position() instead.',
+        );
       case Variant.fromPosition:
         throw ArgumentError('This variant has no defined initial position!');
       case Variant.antichess:
@@ -120,26 +138,26 @@ enum Variant {
     }
   }
 
-  Rules get rules {
+  Rule get rule {
     switch (this) {
       case Variant.standard:
       case Variant.chess960:
       case Variant.fromPosition:
-        return Rules.chess;
+        return Rule.chess;
       case Variant.antichess:
-        return Rules.antichess;
+        return Rule.antichess;
       case Variant.kingOfTheHill:
-        return Rules.kingofthehill;
+        return Rule.kingofthehill;
       case Variant.threeCheck:
-        return Rules.threecheck;
+        return Rule.threecheck;
       case Variant.atomic:
-        return Rules.atomic;
+        return Rule.atomic;
       case Variant.horde:
-        return Rules.horde;
+        return Rule.horde;
       case Variant.racingKings:
-        return Rules.racingKings;
+        return Rule.racingKings;
       case Variant.crazyhouse:
-        return Rules.crazyhouse;
+        return Rule.crazyhouse;
     }
   }
 }
@@ -150,13 +168,19 @@ sealed class Opening {
   String get name;
 }
 
-@freezed
+@Freezed(fromJson: true, toJson: true)
 class LightOpening with _$LightOpening implements Opening {
   const LightOpening._();
-  const factory LightOpening({
-    required String eco,
-    required String name,
-  }) = _LightOpening;
+  const factory LightOpening({required String eco, required String name}) = _LightOpening;
+
+  factory LightOpening.fromJson(Map<String, dynamic> json) => _$LightOpeningFromJson(json);
+}
+
+@Freezed(fromJson: true, toJson: true)
+class Division with _$Division {
+  const factory Division({double? middlegame, double? endgame}) = _Division;
+
+  factory Division.fromJson(Map<String, dynamic> json) => _$DivisionFromJson(json);
 }
 
 @freezed
@@ -178,7 +202,7 @@ extension ChessExtension on Pick {
       return value;
     }
     if (value is String) {
-      final move = Move.fromUci(value);
+      final move = Move.parse(value);
       if (move != null) {
         return move;
       } else {
@@ -187,9 +211,7 @@ extension ChessExtension on Pick {
         );
       }
     }
-    throw PickException(
-      "value $value at $debugParsingExit can't be casted to Move",
-    );
+    throw PickException("value $value at $debugParsingExit can't be casted to Move");
   }
 
   Move? asUciMoveOrNull() {
@@ -207,17 +229,34 @@ extension ChessExtension on Pick {
       return value;
     }
     if (value is String) {
-      return value == 'white' ? Side.white : Side.black;
+      return value == 'white'
+          ? Side.white
+          : value == 'black'
+          ? Side.black
+          : throw PickException(
+            "value $value at $debugParsingExit can't be casted to Side: invalid string.",
+          );
     }
-    throw PickException(
-      "value $value at $debugParsingExit can't be casted to Side",
-    );
+    throw PickException("value $value at $debugParsingExit can't be casted to Side");
   }
 
   Side? asSideOrNull() {
     if (value == null) return null;
     try {
       return asSideOrThrow();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Square asSquareOrThrow() {
+    return Square.parse(this.required().value as String)!;
+  }
+
+  Square? asSquareOrNull() {
+    if (value == null) return null;
+    try {
+      return asSquareOrThrow();
     } catch (_) {
       return null;
     }
@@ -239,15 +278,13 @@ extension ChessExtension on Pick {
         return variant;
       }
     }
-    throw PickException(
-      "value $value at $debugParsingExit can't be casted to Variant",
-    );
+    throw PickException("value $value at $debugParsingExit can't be casted to Variant");
   }
 
   Variant? asVariantOrNull() {
     if (value == null) return null;
     try {
-      return asVariantOrNull();
+      return asVariantOrThrow();
     } catch (_) {
       return null;
     }

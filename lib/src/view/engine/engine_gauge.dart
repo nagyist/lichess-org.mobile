@@ -1,93 +1,82 @@
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dartchess/dartchess.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
-
-import 'package:lichess_mobile/src/styles/styles.dart';
-import 'package:lichess_mobile/src/model/settings/brightness.dart';
-import 'package:lichess_mobile/src/utils/l10n_context.dart';
 import 'package:lichess_mobile/src/model/common/eval.dart';
-import 'package:lichess_mobile/src/model/engine/engine_evaluation.dart';
+import 'package:lichess_mobile/src/model/engine/evaluation_service.dart';
+import 'package:lichess_mobile/src/model/settings/brightness.dart';
+import 'package:lichess_mobile/src/styles/styles.dart';
+import 'package:lichess_mobile/src/utils/l10n_context.dart';
 
-part 'engine_gauge.freezed.dart';
-
-const double kEvalGaugeSize = 26.0;
+const double kEvalGaugeSize = 24.0;
 const double kEvalGaugeFontSize = 11.0;
 const Color _kEvalGaugeBackgroundColor = Color(0xFF444444);
 const Color _kEvalGaugeValueColorDarkBg = Color(0xEEEEEEEE);
 const Color _kEvalGaugeValueColorLightBg = Color(0xFFFFFFFF);
 
-enum EngineGaugeDisplayMode {
-  vertical,
-  horizontal,
-}
+enum EngineGaugeDisplayMode { vertical, horizontal }
 
-@freezed
-class EngineGaugeParams with _$EngineGaugeParams {
-  const factory EngineGaugeParams({
-    required EvaluationContext evaluationContext,
+typedef EngineGaugeParams =
+    ({
+      bool isLocalEngineAvailable,
 
-    /// Only used for vertical display mode.
-    required Side orientation,
+      /// Only used for vertical display mode.
+      Side orientation,
 
-    /// Position to evaluate.
-    required Position position,
+      /// Position to evaluate.
+      Position position,
 
-    /// Saved evaluation to display when the current evaluation is not available.
-    ClientEval? savedEval,
-  }) = _EngineGaugeParams;
-}
+      /// Saved evaluation to display when the current evaluation is not available.
+      Eval? savedEval,
+    });
 
 class EngineGauge extends ConsumerWidget {
-  const EngineGauge({
-    required this.displayMode,
-    required this.params,
-  });
+  const EngineGauge({required this.displayMode, required this.params});
 
   final EngineGaugeDisplayMode displayMode;
 
   final EngineGaugeParams params;
 
   static Color backgroundColor(BuildContext context, Brightness brightness) =>
-      defaultTargetPlatform == TargetPlatform.iOS
+      Theme.of(context).platform == TargetPlatform.iOS
           ? _kEvalGaugeBackgroundColor
           : brightness == Brightness.dark
-              ? lighten(Theme.of(context).colorScheme.background, .07)
-              : lighten(Theme.of(context).colorScheme.onBackground, .17);
+          ? lighten(Theme.of(context).colorScheme.surface, .07)
+          : lighten(Theme.of(context).colorScheme.onSurface, .17);
 
   static Color valueColor(BuildContext context, Brightness brightness) =>
-      defaultTargetPlatform == TargetPlatform.iOS
+      Theme.of(context).platform == TargetPlatform.iOS
           ? brightness == Brightness.dark
               ? _kEvalGaugeValueColorDarkBg
               : _kEvalGaugeValueColorLightBg
           : brightness == Brightness.dark
-              ? darken(Theme.of(context).colorScheme.onBackground, .03)
-              : darken(Theme.of(context).colorScheme.background, .01);
+          ? darken(Theme.of(context).colorScheme.onSurface, .03)
+          : darken(Theme.of(context).colorScheme.surface, .01);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final eval = ref.watch(engineEvaluationProvider(params.evaluationContext));
+    final localEval =
+        params.isLocalEngineAvailable ? ref.watch(engineEvaluationProvider).eval : null;
 
-    return eval != null
+    return localEval != null
         ? _EvalGauge(
-            displayMode: displayMode,
-            position: params.position,
-            orientation: params.orientation,
-            eval: eval,
-          )
+          displayMode: displayMode,
+          position: params.position,
+          orientation: params.orientation,
+          eval: localEval,
+        )
         : params.savedEval != null
-            ? _EvalGauge(
-                displayMode: displayMode,
-                position: params.position,
-                orientation: params.orientation,
-                eval: params.savedEval,
-              )
-            : _EvalGauge(
-                displayMode: displayMode,
-                position: params.position,
-                orientation: params.orientation,
-              );
+        ? _EvalGauge(
+          displayMode: displayMode,
+          position: params.position,
+          orientation: params.orientation,
+          eval: params.savedEval,
+        )
+        : _EvalGauge(
+          displayMode: displayMode,
+          position: params.position,
+          orientation: params.orientation,
+        );
   }
 }
 
@@ -101,7 +90,7 @@ class _EvalGauge extends ConsumerStatefulWidget {
 
   final EngineGaugeDisplayMode displayMode;
   final Position position;
-  final ClientEval? eval;
+  final Eval? eval;
   final Side orientation;
 
   double get whiteWinningChances => eval?.winningChances(Side.white) ?? 0.0;
@@ -126,23 +115,25 @@ class _EvalGaugeState extends ConsumerState<_EvalGauge> {
     final brightness = ref.watch(currentBrightnessProvider);
     final TextDirection textDirection = Directionality.of(context);
 
-    final evalDisplay = widget.position.outcome != null
-        ? widget.position.outcome!.winner == null
-            ? widget.position.isStalemate
-                ? context.l10n.stalemate
-                : context.l10n.insufficientMaterial
-            : widget.position.isCheckmate
+    final evalDisplay =
+        widget.position.outcome != null
+            ? widget.position.outcome!.winner == null
+                ? widget.position.isStalemate
+                    ? context.l10n.stalemate
+                    : context.l10n.insufficientMaterial
+                : widget.position.isCheckmate
                 ? context.l10n.checkmate
                 : context.l10n.variantEnding
-        : widget.eval?.evalString;
+            : widget.eval?.evalString;
 
-    final toValue = widget.position.outcome != null
-        ? widget.position.outcome!.winner == null
-            ? 0.5
-            : widget.position.outcome!.winner == Side.white
+    final toValue =
+        widget.position.outcome != null
+            ? widget.position.outcome!.winner == null
+                ? 0.5
+                : widget.position.outcome!.winner == Side.white
                 ? 1.0
                 : 0.0
-        : widget.animationValue;
+            : widget.animationValue;
 
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: fromValue, end: toValue),
@@ -152,56 +143,47 @@ class _EvalGaugeState extends ConsumerState<_EvalGauge> {
         return Semantics(
           label: context.l10n.evaluationGauge,
           value: evalDisplay ?? context.l10n.loadingEngine,
-          child: Container(
-            constraints: widget.displayMode == EngineGaugeDisplayMode.vertical
-                ? const BoxConstraints(
-                    minWidth: kEvalGaugeSize,
-                    minHeight: double.infinity,
-                  )
-                : const BoxConstraints(
-                    minWidth: double.infinity,
-                    minHeight: kEvalGaugeSize,
-                  ),
-            width: widget.displayMode == EngineGaugeDisplayMode.vertical
-                ? kEvalGaugeSize
-                : null,
-            height: widget.displayMode == EngineGaugeDisplayMode.vertical
-                ? null
-                : kEvalGaugeSize,
-            child: CustomPaint(
-              painter: widget.displayMode == EngineGaugeDisplayMode.vertical
-                  ? _EvalGaugeVerticalPainter(
-                      orientation: widget.orientation,
-                      backgroundColor:
-                          EngineGauge.backgroundColor(context, brightness),
-                      valueColor: EngineGauge.valueColor(context, brightness),
-                      value: value,
-                    )
-                  : _EvalGaugeHorizontalPainter(
-                      backgroundColor:
-                          EngineGauge.backgroundColor(context, brightness),
-                      valueColor: EngineGauge.valueColor(context, brightness),
-                      value: value,
-                      textDirection: textDirection,
-                    ),
-              child: widget.displayMode == EngineGaugeDisplayMode.vertical
-                  ? const SizedBox.shrink()
-                  : Align(
-                      alignment: toValue >= 0.5
-                          ? Alignment.centerLeft
-                          : Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: Text(
-                          evalDisplay ?? '',
-                          style: TextStyle(
-                            color: toValue >= 0.5 ? Colors.black : Colors.white,
-                            fontSize: kEvalGaugeFontSize,
-                            fontWeight: FontWeight.bold,
+          child: RepaintBoundary(
+            child: Container(
+              constraints:
+                  widget.displayMode == EngineGaugeDisplayMode.vertical
+                      ? const BoxConstraints(minWidth: kEvalGaugeSize, minHeight: double.infinity)
+                      : const BoxConstraints(minWidth: double.infinity, minHeight: kEvalGaugeSize),
+              width: widget.displayMode == EngineGaugeDisplayMode.vertical ? kEvalGaugeSize : null,
+              height: widget.displayMode == EngineGaugeDisplayMode.vertical ? null : kEvalGaugeSize,
+              child: CustomPaint(
+                painter:
+                    widget.displayMode == EngineGaugeDisplayMode.vertical
+                        ? _EvalGaugeVerticalPainter(
+                          orientation: widget.orientation,
+                          backgroundColor: EngineGauge.backgroundColor(context, brightness),
+                          valueColor: EngineGauge.valueColor(context, brightness),
+                          value: value,
+                        )
+                        : _EvalGaugeHorizontalPainter(
+                          backgroundColor: EngineGauge.backgroundColor(context, brightness),
+                          valueColor: EngineGauge.valueColor(context, brightness),
+                          value: value,
+                          textDirection: textDirection,
+                        ),
+                child:
+                    widget.displayMode == EngineGaugeDisplayMode.vertical
+                        ? const SizedBox.shrink()
+                        : Align(
+                          alignment: toValue >= 0.5 ? Alignment.centerLeft : Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                            child: Text(
+                              evalDisplay ?? '',
+                              style: TextStyle(
+                                color: toValue >= 0.5 ? Colors.black : Colors.white,
+                                fontSize: kEvalGaugeFontSize,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
+              ),
             ),
           ),
         );
@@ -225,9 +207,10 @@ class _EvalGaugeHorizontalPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = backgroundColor
-      ..style = PaintingStyle.fill;
+    final Paint paint =
+        Paint()
+          ..color = backgroundColor
+          ..style = PaintingStyle.fill;
     canvas.drawRect(Offset.zero & size, paint);
 
     paint.color = valueColor;
@@ -274,9 +257,10 @@ class _EvalGaugeVerticalPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = backgroundColor
-      ..style = PaintingStyle.fill;
+    final Paint paint =
+        Paint()
+          ..color = backgroundColor
+          ..style = PaintingStyle.fill;
     canvas.drawRect(Offset.zero & size, paint);
 
     paint.color = valueColor;

@@ -1,145 +1,90 @@
 import 'package:flutter/cupertino.dart';
-import 'package:dartchess/dartchess.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lichess_mobile/src/model/game/game.dart';
-import 'package:timeago/timeago.dart' as timeago;
-
-import 'package:lichess_mobile/src/styles/lichess_colors.dart';
-import 'package:lichess_mobile/src/styles/styles.dart';
-import 'package:lichess_mobile/src/constants.dart';
 import 'package:lichess_mobile/src/model/auth/auth_session.dart';
-import 'package:lichess_mobile/src/model/account/account_repository.dart';
-import 'package:lichess_mobile/src/model/game/game_repository_providers.dart';
-import 'package:lichess_mobile/src/model/game/game_status.dart';
+import 'package:lichess_mobile/src/model/game/game_history.dart';
 import 'package:lichess_mobile/src/model/user/user.dart';
+import 'package:lichess_mobile/src/network/connectivity.dart';
+import 'package:lichess_mobile/src/styles/styles.dart';
 import 'package:lichess_mobile/src/utils/l10n_context.dart';
 import 'package:lichess_mobile/src/utils/navigation.dart';
+import 'package:lichess_mobile/src/view/game/game_list_tile.dart';
+import 'package:lichess_mobile/src/view/user/game_history_screen.dart';
+import 'package:lichess_mobile/src/widgets/buttons.dart';
 import 'package:lichess_mobile/src/widgets/list.dart';
-import 'package:lichess_mobile/src/widgets/player.dart';
 import 'package:lichess_mobile/src/widgets/shimmer.dart';
-import 'package:lichess_mobile/src/view/game/archived_game_screen.dart';
 
-class RecentGames extends ConsumerWidget {
-  const RecentGames({this.user, super.key});
+/// A widget that show a list of recent games for a given player or the current user.
+///
+/// If [user] is not provided, the current logged in user's recent games are displayed.
+/// If the current user is not logged in, or there is no connectivity, the stored recent games are displayed instead.
+class RecentGamesWidget extends ConsumerWidget {
+  const RecentGamesWidget({this.user, super.key});
 
   final LightUser? user;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recentGames = user != null
-        ? ref.watch(userRecentGamesProvider(userId: user!.id))
-        : ref.watch(accountRecentGamesProvider);
+    final connectivity = ref.watch(connectivityChangesProvider);
+    final session = ref.watch(authSessionProvider);
+    final userId = user?.id ?? session?.user.id;
 
-    final userId = user?.id ?? ref.watch(authSessionProvider)?.user.id;
+    final recentGames =
+        user != null
+            ? ref.watch(userRecentGamesProvider(userId: user!.id))
+            : ref.watch(myRecentGamesProvider);
 
-    Widget getResultIcon(ArchivedGameData game, Side mySide) {
-      if (game.status == GameStatus.aborted ||
-          game.status == GameStatus.noStart) {
-        return const Icon(
-          CupertinoIcons.xmark_square_fill,
-          color: LichessColors.grey,
-        );
-      } else {
-        return game.winner == null
-            ? const Icon(
-                CupertinoIcons.equal_square_fill,
-                color: LichessColors.brag,
-              )
-            : game.winner == mySide
-                ? const Icon(
-                    CupertinoIcons.plus_square_fill,
-                    color: LichessColors.good,
-                  )
-                : const Icon(
-                    CupertinoIcons.minus_square_fill,
-                    color: LichessColors.red,
-                  );
-      }
-    }
+    final nbOfGames =
+        ref
+            .watch(
+              userNumberOfGamesProvider(user, isOnline: connectivity.valueOrNull?.isOnline == true),
+            )
+            .valueOrNull ??
+        0;
 
     return recentGames.when(
       data: (data) {
         if (data.isEmpty) {
-          return kEmptyWidget;
+          return const SizedBox.shrink();
         }
         return ListSection(
-          header: Text(context.l10n.recentGames, style: Styles.sectionTitle),
+          header: Text(context.l10n.recentGames),
           hasLeading: true,
-          children: data.map((game) {
-            final mySide = game.white.id == userId ? Side.white : Side.black;
-            final me = game.white.id == userId ? game.white : game.black;
-            final opponent = game.white.id == userId ? game.black : game.white;
-
-            return GameListTile(
-              onTap: game.variant.isSupported
-                  ? () {
+          headerTrailing:
+              nbOfGames > data.length
+                  ? NoPaddingTextButton(
+                    onPressed: () {
                       pushPlatformRoute(
                         context,
-                        rootNavigator: true,
-                        builder: (context) => ArchivedGameScreen(
-                          gameData: game,
-                          orientation:
-                              userId == game.white.id ? Side.white : Side.black,
-                        ),
+                        builder:
+                            (context) => GameHistoryScreen(
+                              user: user,
+                              isOnline: connectivity.valueOrNull?.isOnline == true,
+                            ),
                       );
-                    }
+                    },
+                    child: Text(context.l10n.more),
+                  )
                   : null,
-              icon: game.perf.icon,
-              playerTitle: PlayerTitle(
-                userName: opponent.displayName(context),
-                title: opponent.title,
-                rating: opponent.rating,
-              ),
-              subtitle: Text(
-                timeago.format(game.lastMoveAt),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (me.analysis != null) ...[
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          CupertinoIcons.chart_bar_alt_fill,
-                          color: textShade(context, 0.5),
-                        ),
-                        Text(
-                          me.analysis!.accuracy.toString(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: textShade(context, Styles.subtitleOpacity),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 5),
-                  ],
-                  getResultIcon(game, mySide),
-                ],
-              ),
-            );
-          }).toList(),
+          children:
+              data.map((item) {
+                return ExtendedGameListTile(item: item, userId: userId);
+              }).toList(),
         );
       },
       error: (error, stackTrace) {
-        debugPrint(
-          'SEVERE: [RecentGames] could not recent games; $error\n$stackTrace',
-        );
-        return Padding(
+        debugPrint('SEVERE: [RecentGames] could not recent games; $error\n$stackTrace');
+        return const Padding(
           padding: Styles.bodySectionPadding,
-          child: const Text('Could not load recent games.'),
+          child: Text('Could not load recent games.'),
         );
       },
-      loading: () => Shimmer(
-        child: ShimmerLoading(
-          isLoading: true,
-          child: ListSection.loading(
-            itemsNumber: 10,
-            header: true,
+      loading:
+          () => Shimmer(
+            child: ShimmerLoading(
+              isLoading: true,
+              child: ListSection.loading(itemsNumber: 10, header: true),
+            ),
           ),
-        ),
-      ),
     );
   }
 }

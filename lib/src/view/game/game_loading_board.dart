@@ -1,24 +1,25 @@
-import 'dart:ui';
-import 'package:flutter/foundation.dart';
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:chessground/chessground.dart' as cg;
-
 import 'package:lichess_mobile/src/constants.dart';
+import 'package:lichess_mobile/src/model/challenge/challenge.dart';
 import 'package:lichess_mobile/src/model/lobby/game_seek.dart';
-import 'package:lichess_mobile/src/model/lobby/lobby_game.dart';
-import 'package:lichess_mobile/src/widgets/buttons.dart';
-import 'package:lichess_mobile/src/widgets/platform.dart';
-import 'package:lichess_mobile/src/widgets/board_table.dart';
-import 'package:lichess_mobile/src/styles/styles.dart';
+import 'package:lichess_mobile/src/model/lobby/lobby_numbers.dart';
 import 'package:lichess_mobile/src/utils/l10n_context.dart';
+import 'package:lichess_mobile/src/widgets/board_table.dart';
+import 'package:lichess_mobile/src/widgets/bottom_bar.dart';
+import 'package:lichess_mobile/src/widgets/bottom_bar_button.dart';
+import 'package:lichess_mobile/src/widgets/feedback.dart';
+import 'package:lichess_mobile/src/widgets/platform.dart';
+import 'package:lichess_mobile/src/widgets/shimmer.dart';
+import 'package:lichess_mobile/src/widgets/user_full_name.dart';
 
-class LobbyGameLoadingBoard extends StatelessWidget {
-  const LobbyGameLoadingBoard(this.seek, {this.isRematch = false});
+class LobbyScreenLoadingContent extends StatelessWidget {
+  const LobbyScreenLoadingContent(this.seek, this.cancelGameCreation);
 
   final GameSeek seek;
-  final bool isRematch;
+  final Future<void> Function() cancelGameCreation;
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +29,8 @@ class LobbyGameLoadingBoard extends StatelessWidget {
           child: SafeArea(
             bottom: false,
             child: BoardTable(
-              boardData: const cg.BoardData(
-                interactableSide: cg.InteractableSide.none,
-                orientation: cg.Side.white,
-                fen: kEmptyFen,
-              ),
+              orientation: Side.white,
+              fen: kEmptyFen,
               topTable: const SizedBox.shrink(),
               bottomTable: const SizedBox.shrink(),
               showMoveListPlaceholder: true,
@@ -43,34 +41,30 @@ class LobbyGameLoadingBoard extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text('${context.l10n.waitingForOpponent}...'),
-                      if (isRematch == false) ...[
-                        const SizedBox(height: 26.0),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              seek.perf.icon,
-                              color: DefaultTextStyle.of(context).style.color,
-                            ),
-                            const SizedBox(width: 8.0),
-                            Text(
-                              seek.timeIncrement.display,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                          ],
-                        ),
-                        if (seek.ratingRange != null) ...[
-                          const SizedBox(height: 8.0),
+                      Text(context.l10n.mobileWaitingForOpponentToJoin),
+                      const SizedBox(height: 26.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(seek.perf.icon, color: DefaultTextStyle.of(context).style.color),
+                          const SizedBox(width: 8.0),
                           Text(
-                            '${seek.ratingRange!.$1}-${seek.ratingRange!.$2}',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            seek.timeIncrement?.display ??
+                                '${context.l10n.daysPerTurn}: ${seek.days}',
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ],
-                        const SizedBox(height: 16.0),
-                        _LobbyNumbers(),
+                      ),
+                      if (seek.ratingRange != null) ...[
+                        const SizedBox(height: 8.0),
+                        Text(
+                          '${seek.ratingRange!.$1}-${seek.ratingRange!.$2}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                       ],
+                      const SizedBox(height: 16.0),
+                      _LobbyNumbers(),
                     ],
                   ),
                 ),
@@ -78,16 +72,95 @@ class LobbyGameLoadingBoard extends StatelessWidget {
             ),
           ),
         ),
-        _BottomBar(
+        PlatformBottomBar(
           children: [
-            if (isRematch == false)
-              BottomBarButton(
-                onTap: () => Navigator.of(context).pop(),
-                label: context.l10n.cancel,
-                shortLabel: context.l10n.cancel,
-                icon: CupertinoIcons.xmark,
-                showAndroidShortLabel: true,
+            BottomBarButton(
+              onTap: () async {
+                await cancelGameCreation();
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
+              label: context.l10n.cancel,
+              showLabel: true,
+              icon: CupertinoIcons.xmark,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class ChallengeLoadingContent extends StatelessWidget {
+  const ChallengeLoadingContent(this.challenge, this.cancelChallenge);
+
+  final ChallengeRequest challenge;
+  final Future<void> Function() cancelChallenge;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          child: SafeArea(
+            bottom: false,
+            child: BoardTable(
+              orientation: Side.white,
+              fen: kEmptyFen,
+              topTable: const SizedBox.shrink(),
+              bottomTable: const SizedBox.shrink(),
+              showMoveListPlaceholder: true,
+              boardOverlay: PlatformCard(
+                elevation: 2.0,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Text(context.l10n.waitingForOpponent),
+                      const SizedBox(height: 16.0),
+                      UserFullNameWidget(
+                        user: challenge.destUser,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 16.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            challenge.perf.icon,
+                            color: DefaultTextStyle.of(context).style.color,
+                          ),
+                          const SizedBox(width: 8.0),
+                          Text(
+                            challenge.timeIncrement?.display ??
+                                '${context.l10n.daysPerTurn}: ${challenge.days}',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
+            ),
+          ),
+        ),
+        PlatformBottomBar(
+          children: [
+            BottomBarButton(
+              onTap: () async {
+                await cancelChallenge();
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
+              label: context.l10n.cancel,
+              showLabel: true,
+              icon: CupertinoIcons.xmark,
+            ),
           ],
         ),
       ],
@@ -96,7 +169,77 @@ class LobbyGameLoadingBoard extends StatelessWidget {
 }
 
 class StandaloneGameLoadingBoard extends StatelessWidget {
-  const StandaloneGameLoadingBoard();
+  const StandaloneGameLoadingBoard({this.fen, this.lastMove, this.orientation, super.key});
+
+  final String? fen;
+  final Side? orientation;
+  final Move? lastMove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer(
+      child: BoardTable(
+        orientation: orientation ?? Side.white,
+        fen: fen ?? kEmptyFen,
+        lastMove: lastMove as NormalMove?,
+        topTable: const LoadingPlayerWidget(),
+        bottomTable: const LoadingPlayerWidget(),
+        showMoveListPlaceholder: true,
+      ),
+    );
+  }
+}
+
+/// A widget that shows a loading indicator for a player.
+///
+/// Must be wrapped in a [Shimmer] widget.
+class LoadingPlayerWidget extends StatelessWidget {
+  const LoadingPlayerWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ShimmerLoading(
+      isLoading: true,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Flexible(
+            flex: 6,
+            child: SizedBox(
+              height: 24.0,
+              width: double.infinity,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(10.0),
+                ),
+              ),
+            ),
+          ),
+          const Spacer(),
+          Flexible(
+            flex: 2,
+            child: SizedBox(
+              height: 38.0,
+              width: double.infinity,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(5.0),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LoadGameError extends StatelessWidget {
+  const LoadGameError(this.errorMessage);
+
+  final String errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -106,69 +249,22 @@ class StandaloneGameLoadingBoard extends StatelessWidget {
           child: SafeArea(
             bottom: false,
             child: BoardTable(
-              boardData: const cg.BoardData(
-                interactableSide: cg.InteractableSide.none,
-                orientation: cg.Side.white,
-                fen: kEmptyFen,
-              ),
+              orientation: Side.white,
+              fen: kEmptyFen,
               topTable: const SizedBox.shrink(),
               bottomTable: const SizedBox.shrink(),
               showMoveListPlaceholder: true,
-              boardOverlay: PlatformCard(
-                elevation: 2.0,
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text('${context.l10n.waitingForOpponent}...'),
-                    ],
-                  ),
-                ),
-              ),
+              errorMessage: errorMessage,
             ),
           ),
         ),
-        const _BottomBar(
-          children: [],
-        ),
-      ],
-    );
-  }
-}
-
-class LoadGameError extends StatelessWidget {
-  const LoadGameError();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const Expanded(
-          child: SafeArea(
-            bottom: false,
-            child: BoardTable(
-              boardData: cg.BoardData(
-                interactableSide: cg.InteractableSide.none,
-                orientation: cg.Side.white,
-                fen: kEmptyFen,
-              ),
-              topTable: SizedBox.shrink(),
-              bottomTable: SizedBox.shrink(),
-              showMoveListPlaceholder: true,
-              errorMessage:
-                  'Sorry, we could not load the game. Please try again later.',
-            ),
-          ),
-        ),
-        _BottomBar(
+        PlatformBottomBar(
           children: [
             BottomBarButton(
               onTap: () => Navigator.of(context).pop(),
               label: context.l10n.cancel,
-              shortLabel: context.l10n.cancel,
               icon: CupertinoIcons.xmark,
-              showAndroidShortLabel: true,
+              showLabel: true,
             ),
           ],
         ),
@@ -177,27 +273,83 @@ class LoadGameError extends StatelessWidget {
   }
 }
 
-class _BottomBar extends StatelessWidget {
-  const _BottomBar({
-    required this.children,
-  });
+/// A board that shows a message that a challenge has been declined.
+class ChallengeDeclinedBoard extends StatelessWidget {
+  const ChallengeDeclinedBoard({required this.declineReason, required this.challenge});
 
-  final List<Widget> children;
+  final String declineReason;
+  final Challenge challenge;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: Styles.horizontalBodyPadding,
-      color: defaultTargetPlatform == TargetPlatform.iOS
-          ? CupertinoTheme.of(context).barBackgroundColor
-          : Theme.of(context).bottomAppBarTheme.color,
-      child: SafeArea(
-        top: false,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: children,
+    final textColor = DefaultTextStyle.of(context).style.color;
+
+    return Column(
+      children: [
+        Expanded(
+          child: SafeArea(
+            bottom: false,
+            child: BoardTable(
+              orientation: Side.white,
+              fen: kEmptyFen,
+              topTable: const SizedBox.shrink(),
+              bottomTable: const SizedBox.shrink(),
+              showMoveListPlaceholder: true,
+              boardOverlay: PlatformCard(
+                elevation: 2.0,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          context.l10n.challengeChallengeDeclined,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8.0),
+                        Divider(height: 26.0, thickness: 0.0, color: textColor),
+                        Text(declineReason, style: const TextStyle(fontStyle: FontStyle.italic)),
+                        Divider(height: 26.0, thickness: 0.0, color: textColor),
+                        if (challenge.destUser != null)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(' — '),
+                                UserFullNameWidget(user: challenge.destUser?.user),
+                                if (challenge.destUser?.lagRating != null) ...[
+                                  const SizedBox(width: 6.0),
+                                  LagIndicator(
+                                    lagRating: challenge.destUser!.lagRating!,
+                                    size: 13.0,
+                                    showLoadingIndicator: false,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
+        PlatformBottomBar(
+          children: [
+            BottomBarButton(
+              onTap: () => Navigator.of(context).pop(),
+              label: context.l10n.cancel,
+              icon: CupertinoIcons.xmark,
+              showLabel: true,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -210,83 +362,21 @@ class _LobbyNumbers extends ConsumerWidget {
     if (lobbyNumbers == null) {
       return Column(
         children: [
-          Text(
-            context.l10n.nbPlayers(0).replaceAll('0', '...'),
-          ),
+          Text(context.l10n.nbPlayers(0).replaceAll('0', '...')),
           const SizedBox(height: 8.0),
-          Text(
-            context.l10n.nbGamesInPlay(0).replaceAll('0', '...'),
-          ),
+          Text(context.l10n.nbGamesInPlay(0).replaceAll('0', '...')),
         ],
       );
     } else {
       final (:nbPlayers, :nbGames) = lobbyNumbers;
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _AnimatedLobbyNumber(
-            labelBuilder: (nb) => context.l10n.nbPlayers(nb),
-            value: nbPlayers,
-          ),
+          Text(context.l10n.nbPlayers(nbPlayers)),
           const SizedBox(height: 8.0),
-          _AnimatedLobbyNumber(
-            labelBuilder: (nb) => context.l10n.nbGamesInPlay(nb),
-            value: nbGames,
-          ),
+          Text(context.l10n.nbGamesInPlay(nbGames)),
         ],
       );
     }
-  }
-}
-
-const _lobbyNumbersStyle = TextStyle(
-  fontFeatures: [
-    FontFeature.tabularFigures(),
-  ],
-);
-
-class _AnimatedLobbyNumber extends StatefulWidget {
-  const _AnimatedLobbyNumber({
-    required this.labelBuilder,
-    required this.value,
-  });
-
-  final String Function(int) labelBuilder;
-  final int value;
-
-  @override
-  State<_AnimatedLobbyNumber> createState() => _AnimatedLobbyNumberState();
-}
-
-class _AnimatedLobbyNumberState extends State<_AnimatedLobbyNumber> {
-  int previousValue = 0;
-  int value = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    previousValue = widget.value;
-    value = widget.value;
-  }
-
-  @override
-  void didUpdateWidget(covariant _AnimatedLobbyNumber oldWidget) {
-    previousValue = oldWidget.value;
-    value = widget.value;
-    super.didUpdateWidget(oldWidget);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<int>(
-      tween: IntTween(
-        begin: previousValue,
-        end: value,
-      ),
-      curve: Curves.linear,
-      duration: const Duration(seconds: 3),
-      builder: (context, int value, _) {
-        return Text(widget.labelBuilder(value), style: _lobbyNumbersStyle);
-      },
-    );
   }
 }

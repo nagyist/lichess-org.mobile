@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -9,7 +8,7 @@ void showAdaptiveDatePicker(
   required DateTime lastDate,
   required void Function(DateTime?) onDateTimeChanged,
 }) {
-  switch (defaultTargetPlatform) {
+  switch (Theme.of(context).platform) {
     case TargetPlatform.iOS:
       showCupertinoModalPopup<DateTime?>(
         context: context,
@@ -19,8 +18,7 @@ void showAdaptiveDatePicker(
               return SizedBox(
                 height: 250,
                 child: CupertinoDatePicker(
-                  backgroundColor:
-                      CupertinoColors.systemBackground.resolveFrom(context),
+                  backgroundColor: CupertinoColors.systemBackground.resolveFrom(context),
                   initialDateTime: initialDate,
                   minimumDate: firstDate,
                   maximumDate: lastDate,
