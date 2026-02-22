@@ -6,14 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lichess_mobile/src/model/common/chess.dart';
+import 'package:lichess_mobile/src/model/common/id.dart';
 import 'package:lichess_mobile/src/model/common/perf.dart';
 import 'package:lichess_mobile/src/model/common/speed.dart';
 import 'package:lichess_mobile/src/model/game/game.dart';
 import 'package:lichess_mobile/src/model/game/game_status.dart';
 import 'package:lichess_mobile/src/model/game/offline_computer_game.dart';
 import 'package:lichess_mobile/src/model/game/player.dart';
+import 'package:lichess_mobile/src/model/offline_computer/computer_analysis.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_controller.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_storage.dart';
+import 'package:lichess_mobile/src/model/offline_computer/practice_comment.dart';
 import 'package:lichess_mobile/src/utils/navigation.dart';
 import 'package:lichess_mobile/src/view/offline_computer/offline_computer_game_screen.dart';
 import 'package:lichess_mobile/src/widgets/bottom_bar.dart';
@@ -1129,6 +1132,69 @@ void main() {
     });
   });
 
+  group('Practice comment icons', () {
+    setUp(() {
+      testBinding.stockfish = LegalMoveFakeStockfish();
+    });
+
+    Future<void> pumpWithComment(WidgetTester tester, PracticeComment comment) async {
+      final gameStorage = MockOfflineComputerGameStorage();
+      when(() => gameStorage.fetchGame()).thenAnswer((_) async => null);
+
+      final app = await makeTestProviderScopeApp(
+        tester,
+        home: const OfflineComputerGameScreen(),
+        overrides: {
+          offlineComputerGameStorageProvider: offlineComputerGameStorageProvider.overrideWith(
+            (_) => gameStorage,
+          ),
+          offlineComputerGameControllerProvider: offlineComputerGameControllerProvider.overrideWith(
+            () => _FakePracticeController(_stateWithPracticeComment(comment)),
+          ),
+        },
+      );
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
+    }
+
+    PracticeComment makeComment(MoveVerdict verdict, {bool isBookMove = false}) => PracticeComment(
+      verdict: verdict,
+      winningChancesBefore: 0.3,
+      winningChancesAfter: verdict == .goodMove ? 0.27 : 0.1,
+      isBookMove: isBookMove,
+    );
+
+    testWidgets('goodMove shows check_circle icon', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove));
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    });
+
+    testWidgets('notBest shows info icon', (tester) async {
+      await pumpWithComment(tester, makeComment(.notBest));
+      expect(find.byIcon(Icons.info), findsOneWidget);
+    });
+
+    testWidgets('inaccuracy shows help icon', (tester) async {
+      await pumpWithComment(tester, makeComment(.inaccuracy));
+      expect(find.byIcon(Icons.help), findsOneWidget);
+    });
+
+    testWidgets('mistake shows error icon', (tester) async {
+      await pumpWithComment(tester, makeComment(.mistake));
+      expect(find.byIcon(Icons.error), findsOneWidget);
+    });
+
+    testWidgets('blunder shows cancel icon', (tester) async {
+      await pumpWithComment(tester, makeComment(.blunder));
+      expect(find.byIcon(Icons.cancel), findsOneWidget);
+    });
+
+    testWidgets('book move shows menu_book icon regardless of verdict', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove, isBookMove: true));
+      expect(find.byIcon(Icons.menu_book), findsOneWidget);
+    });
+  });
+
   group('Practice mode', () {
     testWidgets('switch is shown in new game dialog', (tester) async {
       final gameStorage = MockOfflineComputerGameStorage();
@@ -1287,6 +1353,56 @@ void main() {
     //   );
     // });
   });
+}
+
+/// A fake controller that returns a preset state, used to inject specific practice comments.
+class _FakePracticeController extends OfflineComputerGameController {
+  _FakePracticeController(this._initialState);
+  final OfflineComputerGameState _initialState;
+
+  @override
+  OfflineComputerGameState build() => _initialState;
+}
+
+/// Builds a game state with the given [comment] on the last step.
+///
+/// Player side is black so the engine (white) has just moved, meaning the
+/// practice comment card is visible (it's not the player's turn).
+OfflineComputerGameState _stateWithPracticeComment(PracticeComment comment) {
+  final afterE4 = Position.setupPosition(
+    Rule.chess,
+    Setup.parseFen('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
+  );
+  final game = OfflineComputerGame(
+    steps: [
+      const GameStep(position: Chess.initial),
+      GameStep(
+        position: afterE4,
+        sanMove: SanMove('e4', Move.parse('e2e4')!),
+        computerAnalysis: ComputerAnalysis(practiceComment: comment),
+      ),
+    ].lock,
+    meta: GameMeta(
+      createdAt: DateTime.now(),
+      rated: false,
+      variant: Variant.standard,
+      speed: Speed.classical,
+      perf: Perf.classical,
+    ),
+    initialFen: kInitialFEN,
+    status: GameStatus.started,
+    playerSide: Side.black,
+    stockfishLevel: StockfishLevel.level1,
+    humanPlayer: const Player(onGame: true),
+    enginePlayer: stockfishPlayer(),
+    practiceMode: true,
+    casual: true,
+  );
+  return OfflineComputerGameState(
+    game: game,
+    gameSessionId: const StringId('test-practice-comment'),
+    stepCursor: 1,
+  );
 }
 
 /// Helper to initialize a practice mode game.

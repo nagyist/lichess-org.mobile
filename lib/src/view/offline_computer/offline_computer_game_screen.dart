@@ -32,8 +32,31 @@ import 'package:lichess_mobile/src/widgets/list.dart';
 import 'package:lichess_mobile/src/widgets/material_diff.dart';
 import 'package:lichess_mobile/src/widgets/misc.dart';
 import 'package:lichess_mobile/src/widgets/non_linear_slider.dart';
+import 'package:lichess_mobile/src/widgets/pgn.dart';
 import 'package:lichess_mobile/src/widgets/settings.dart';
 import 'package:lichess_mobile/src/widgets/yes_no_dialog.dart';
+
+extension _MoveVerdictDisplay on MoveVerdict {
+  IconData get icon => switch (this) {
+    .goodMove => Icons.check_circle,
+    .notBest => Icons.info,
+    .inaccuracy => Icons.help,
+    .mistake => Icons.error,
+    .blunder => Icons.cancel,
+  };
+
+  Color get color => switch (this) {
+    .goodMove || .notBest => Colors.lightGreen,
+    .inaccuracy => innacuracyColor,
+    .mistake => mistakeColor,
+    .blunder => blunderColor,
+  };
+}
+
+extension _PracticeCommentDisplay on PracticeComment {
+  IconData get icon => isBookMove ? Icons.menu_book : verdict.icon;
+  Color get color => verdict.color;
+}
 
 class OfflineComputerGameScreen extends ConsumerWidget {
   const OfflineComputerGameScreen({this.initialFen, super.key});
@@ -115,14 +138,7 @@ class _BodyState extends ConsumerState<_Body> {
     final state = ref.read(offlineComputerGameControllerProvider);
     await ref
         .read(offlineComputerGameStorageProvider)
-        .save(
-          SavedOfflineComputerGame(
-            game: state.game,
-            gameSessionId: state.gameSessionId.value,
-            lastPracticeComment: state.practiceComment,
-            lastEvalString: state.cachedEvalString,
-          ),
-        );
+        .save(SavedOfflineComputerGame(game: state.game, gameSessionId: state.gameSessionId.value));
   }
 
   @override
@@ -465,10 +481,11 @@ class _Player extends ConsumerWidget {
       );
     }
 
-    // Human player - just show captured pieces and practice comment
     final practiceStatusLabel = !game.practiceMode
         ? null
-        : gameState.isEngineThinking || gameState.isEvaluatingMove
+        : gameState.isEvaluatingMove
+        ? context.l10n.evaluatingYourMove
+        : gameState.isEngineThinking
         ? context.l10n.computerThinking
         : !gameState.finished && gameState.turn == game.playerSide
         ? context.l10n.yourTurn
