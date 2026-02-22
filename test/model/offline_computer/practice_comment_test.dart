@@ -126,6 +126,5 @@ void main() {
         MoveVerdict.blunder,
       );
     });
-
   });
 }

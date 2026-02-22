@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lichess_mobile/src/model/common/chess.dart';
+import 'package:lichess_mobile/src/model/common/eval.dart';
 import 'package:lichess_mobile/src/model/common/id.dart';
 import 'package:lichess_mobile/src/model/common/perf.dart';
 import 'package:lichess_mobile/src/model/common/speed.dart';
@@ -15,12 +16,14 @@ import 'package:lichess_mobile/src/model/game/offline_computer_game.dart';
 import 'package:lichess_mobile/src/model/game/player.dart';
 import 'package:lichess_mobile/src/model/offline_computer/computer_analysis.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_controller.dart';
+import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_preferences.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_storage.dart';
 import 'package:lichess_mobile/src/model/offline_computer/practice_comment.dart';
 import 'package:lichess_mobile/src/utils/navigation.dart';
 import 'package:lichess_mobile/src/view/offline_computer/offline_computer_game_screen.dart';
 import 'package:lichess_mobile/src/widgets/bottom_bar.dart';
 import 'package:lichess_mobile/src/widgets/move_list.dart';
+import 'package:lichess_mobile/src/widgets/pgn.dart';
 import 'package:lichess_mobile/src/widgets/settings.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -1132,7 +1135,7 @@ void main() {
     });
   });
 
-  group('Practice comment icons', () {
+  group('Practice comment card', () {
     setUp(() {
       testBinding.stockfish = LegalMoveFakeStockfish();
     });
@@ -1164,6 +1167,8 @@ void main() {
       isBookMove: isBookMove,
     );
 
+    // --- icons ---
+
     testWidgets('goodMove shows check_circle icon', (tester) async {
       await pumpWithComment(tester, makeComment(.goodMove));
       expect(find.byIcon(Icons.check_circle), findsOneWidget);
@@ -1192,6 +1197,205 @@ void main() {
     testWidgets('book move shows menu_book icon regardless of verdict', (tester) async {
       await pumpWithComment(tester, makeComment(.goodMove, isBookMove: true));
       expect(find.byIcon(Icons.menu_book), findsOneWidget);
+    });
+
+    // --- verdict labels ---
+
+    testWidgets('goodMove shows "Good move" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove));
+      expect(find.text('Good move'), findsOneWidget);
+    });
+
+    testWidgets('notBest shows "Good, but there\'s better" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.notBest));
+      expect(find.text("Good, but there's better"), findsOneWidget);
+    });
+
+    testWidgets('inaccuracy shows "Inaccuracy" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.inaccuracy));
+      expect(find.text('Inaccuracy'), findsOneWidget);
+    });
+
+    testWidgets('mistake shows "Mistake" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.mistake));
+      expect(find.text('Mistake'), findsOneWidget);
+    });
+
+    testWidgets('blunder shows "Blunder" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.blunder));
+      expect(find.text('Blunder'), findsOneWidget);
+    });
+
+    testWidgets('book move shows "Good move" label', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove, isBookMove: true));
+      expect(find.text('Good move'), findsOneWidget);
+    });
+
+    // --- icon colors ---
+
+    testWidgets('goodMove icon is lightGreen', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove));
+      final icon = tester.widget<Icon>(find.byIcon(Icons.check_circle));
+      expect(icon.color, Colors.lightGreen);
+    });
+
+    // --- card background colors ---
+
+    testWidgets('goodMove card background is lightGreen with low alpha', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove));
+      final card = _findCommentCardContainer(tester, Icons.check_circle);
+      expect((card.decoration! as BoxDecoration).color, Colors.lightGreen.withValues(alpha: 0.1));
+    });
+
+    testWidgets('inaccuracy card background is innacuracyColor with low alpha', (tester) async {
+      await pumpWithComment(tester, makeComment(.inaccuracy));
+      final card = _findCommentCardContainer(tester, Icons.help);
+      expect((card.decoration! as BoxDecoration).color, innacuracyColor.withValues(alpha: 0.1));
+    });
+
+    testWidgets('mistake card background is mistakeColor with low alpha', (tester) async {
+      await pumpWithComment(tester, makeComment(.mistake));
+      final card = _findCommentCardContainer(tester, Icons.error);
+      expect((card.decoration! as BoxDecoration).color, mistakeColor.withValues(alpha: 0.1));
+    });
+
+    testWidgets('blunder card background is blunderColor with low alpha', (tester) async {
+      await pumpWithComment(tester, makeComment(.blunder));
+      final card = _findCommentCardContainer(tester, Icons.cancel);
+      expect((card.decoration! as BoxDecoration).color, blunderColor.withValues(alpha: 0.1));
+    });
+
+    // --- suggested moves ---
+
+    testWidgets('bestMove is shown for non-best moves', (tester) async {
+      await pumpWithComment(
+        tester,
+        PracticeComment(
+          verdict: MoveVerdict.mistake,
+          bestMove: SanMove('e5', Move.parse('e7e5')!),
+          winningChancesBefore: 0.3,
+          winningChancesAfter: 0.05,
+        ),
+      );
+      expect(find.textContaining('Best was'), findsOneWidget);
+      expect(find.textContaining('e5'), findsOneWidget);
+    });
+
+    testWidgets('alternativeGoodMove is shown for good moves with an alternative', (tester) async {
+      await pumpWithComment(
+        tester,
+        PracticeComment(
+          verdict: MoveVerdict.goodMove,
+          alternativeGoodMove: SanMove('d4', Move.parse('d2d4')!),
+          winningChancesBefore: 0.3,
+          winningChancesAfter: 0.27,
+        ),
+      );
+      expect(find.textContaining('Another was'), findsOneWidget);
+      expect(find.textContaining('d4'), findsOneWidget);
+    });
+
+    testWidgets('no suggested move shown for goodMove without alternative', (tester) async {
+      await pumpWithComment(tester, makeComment(.goodMove));
+      expect(find.textContaining('Best was'), findsNothing);
+      expect(find.textContaining('Another was'), findsNothing);
+    });
+
+    testWidgets('hideBestMove preference hides the suggested move', (tester) async {
+      await _pumpWithState(
+        tester,
+        _stateWithPracticeComment(
+          PracticeComment(
+            verdict: MoveVerdict.mistake,
+            bestMove: SanMove('e5', Move.parse('e7e5')!),
+            winningChancesBefore: 0.3,
+            winningChancesAfter: 0.05,
+          ),
+        ),
+        prefs: OfflineComputerGamePrefs.defaults.copyWith(hideBestMove: true),
+      );
+      expect(find.textContaining('Best was'), findsNothing);
+    });
+
+    // --- evalAfter ---
+
+    testWidgets('evalAfter is displayed in the card', (tester) async {
+      await pumpWithComment(
+        tester,
+        const PracticeComment(
+          verdict: MoveVerdict.mistake,
+          winningChancesBefore: 0.3,
+          winningChancesAfter: 0.05,
+          evalAfter: '+0.3',
+        ),
+      );
+      expect(find.text('+0.3'), findsOneWidget);
+    });
+
+    testWidgets('hideEvaluation preference hides evalAfter', (tester) async {
+      await _pumpWithState(
+        tester,
+        _stateWithPracticeComment(
+          const PracticeComment(
+            verdict: MoveVerdict.mistake,
+            winningChancesBefore: 0.3,
+            winningChancesAfter: 0.05,
+            evalAfter: '+0.3',
+          ),
+        ),
+        prefs: OfflineComputerGamePrefs.defaults.copyWith(hideEvaluation: true),
+      );
+      expect(find.text('+0.3'), findsNothing);
+    });
+
+    // --- game state display ---
+
+    testWidgets('finished game shows "Game Over" instead of a verdict icon', (tester) async {
+      await _pumpWithState(tester, _stateGameFinished());
+      expect(find.text('Game Over'), findsOneWidget);
+      // No verdict icons when game is over
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.info), findsNothing);
+      expect(find.byIcon(Icons.help), findsNothing);
+      expect(find.byIcon(Icons.error), findsNothing);
+      expect(find.byIcon(Icons.cancel), findsNothing);
+    });
+
+    testWidgets("player's turn shows no verdict icon", (tester) async {
+      await _pumpWithState(tester, _statePlayerTurn());
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.info), findsNothing);
+      expect(find.byIcon(Icons.help), findsNothing);
+      expect(find.byIcon(Icons.error), findsNothing);
+      expect(find.byIcon(Icons.cancel), findsNothing);
+    });
+
+    testWidgets("player's turn with cached eval shows the eval string", (tester) async {
+      await _pumpWithState(
+        tester,
+        _statePlayerTurn(
+          analysis: ComputerAnalysis(
+            eval: CloudEval(
+              position: Chess.initial,
+              depth: 20,
+              nodes: 1000000,
+              pvs: [
+                PvData(moves: ['e2e4'].lock, cp: 50),
+              ].lock,
+            ),
+          ),
+        ),
+      );
+      // +50cp = +0.5 pawns
+      expect(find.text('+0.5'), findsOneWidget);
+    });
+
+    testWidgets('isEvaluatingMove with no comment renders the card at half opacity', (
+      tester,
+    ) async {
+      await _pumpWithState(tester, _stateEvaluatingMove());
+      final animatedOpacity = tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity));
+      expect(animatedOpacity.opacity, 0.5);
     });
   });
 
@@ -1364,6 +1568,55 @@ class _FakePracticeController extends OfflineComputerGameController {
   OfflineComputerGameState build() => _initialState;
 }
 
+/// A fake preferences notifier that returns a preset [OfflineComputerGamePrefs].
+class _FakeGamePreferences extends OfflineComputerGamePreferences {
+  _FakeGamePreferences(this._prefs);
+  final OfflineComputerGamePrefs _prefs;
+
+  @override
+  OfflineComputerGamePrefs build() => _prefs;
+}
+
+/// Pumps [OfflineComputerGameScreen] with a specific [state] and optional [prefs] override.
+Future<void> _pumpWithState(
+  WidgetTester tester,
+  OfflineComputerGameState state, {
+  OfflineComputerGamePrefs? prefs,
+}) async {
+  final gameStorage = MockOfflineComputerGameStorage();
+  when(() => gameStorage.fetchGame()).thenAnswer((_) async => null);
+
+  final app = await makeTestProviderScopeApp(
+    tester,
+    home: const OfflineComputerGameScreen(),
+    overrides: {
+      offlineComputerGameStorageProvider: offlineComputerGameStorageProvider.overrideWith(
+        (_) => gameStorage,
+      ),
+      offlineComputerGameControllerProvider: offlineComputerGameControllerProvider.overrideWith(
+        () => _FakePracticeController(state),
+      ),
+      if (prefs != null)
+        offlineComputerGamePreferencesProvider: offlineComputerGamePreferencesProvider.overrideWith(
+          () => _FakeGamePreferences(prefs),
+        ),
+    },
+  );
+  await tester.pumpWidget(app);
+  await tester.pumpAndSettle();
+}
+
+/// Finds the decorated [Container] that forms the comment card body,
+/// anchored by [icon] to disambiguate from other containers in the tree.
+Container _findCommentCardContainer(WidgetTester tester, IconData icon) {
+  final ancestors = tester
+      .widgetList<Container>(find.ancestor(of: find.byIcon(icon), matching: find.byType(Container)))
+      .toList();
+  return ancestors.firstWhere(
+    (c) => c.decoration is BoxDecoration && (c.decoration! as BoxDecoration).borderRadius != null,
+  );
+}
+
 /// Builds a game state with the given [comment] on the last step.
 ///
 /// Player side is black so the engine (white) has just moved, meaning the
@@ -1402,6 +1655,117 @@ OfflineComputerGameState _stateWithPracticeComment(PracticeComment comment) {
     game: game,
     gameSessionId: const StringId('test-practice-comment'),
     stepCursor: 1,
+  );
+}
+
+/// Builds a finished game state (checkmate) with practice mode on.
+///
+/// Used to test that the comment card shows "Game Over" when the game is finished.
+OfflineComputerGameState _stateGameFinished() {
+  final afterE4 = Position.setupPosition(
+    Rule.chess,
+    Setup.parseFen('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
+  );
+  final game = OfflineComputerGame(
+    steps: [
+      const GameStep(position: Chess.initial),
+      GameStep(position: afterE4, sanMove: SanMove('e4', Move.parse('e2e4')!)),
+    ].lock,
+    meta: GameMeta(
+      createdAt: DateTime.now(),
+      rated: false,
+      variant: Variant.standard,
+      speed: Speed.classical,
+      perf: Perf.classical,
+    ),
+    initialFen: kInitialFEN,
+    status: GameStatus.mate,
+    winner: Side.white,
+    playerSide: Side.black,
+    stockfishLevel: StockfishLevel.level1,
+    humanPlayer: const Player(onGame: true),
+    enginePlayer: stockfishPlayer(),
+    practiceMode: true,
+    casual: true,
+  );
+  return OfflineComputerGameState(
+    game: game,
+    gameSessionId: const StringId('test-finished'),
+    stepCursor: 1,
+  );
+}
+
+/// Builds a game state where it is the player's (white's) turn.
+///
+/// Practice mode is on. Optionally populates the current step with [analysis]
+/// (e.g., a cached evaluation) to test the eval display in the comment card.
+OfflineComputerGameState _statePlayerTurn({ComputerAnalysis? analysis}) {
+  final game = OfflineComputerGame(
+    steps: [GameStep(position: Chess.initial, computerAnalysis: analysis)].lock,
+    meta: GameMeta(
+      createdAt: DateTime.now(),
+      rated: false,
+      variant: Variant.standard,
+      speed: Speed.classical,
+      perf: Perf.classical,
+    ),
+    initialFen: kInitialFEN,
+    status: GameStatus.started,
+    playerSide: Side.white,
+    stockfishLevel: StockfishLevel.level1,
+    humanPlayer: const Player(onGame: true),
+    enginePlayer: stockfishPlayer(),
+    practiceMode: true,
+    casual: true,
+  );
+  return OfflineComputerGameState(
+    game: game,
+    gameSessionId: const StringId('test-player-turn'),
+    stepCursor: 0,
+  );
+}
+
+/// Builds a state where the player has just moved and evaluation is in progress.
+///
+/// [isEvaluatingMove] is true and no practice comment is set yet, causing
+/// the comment card to render at half opacity.
+OfflineComputerGameState _stateEvaluatingMove() {
+  final afterE4 = Position.setupPosition(
+    Rule.chess,
+    Setup.parseFen('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
+  );
+  final afterE4E5 = Position.setupPosition(
+    Rule.chess,
+    Setup.parseFen('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2'),
+  );
+  final game = OfflineComputerGame(
+    steps: [
+      const GameStep(position: Chess.initial),
+      GameStep(position: afterE4, sanMove: SanMove('e4', Move.parse('e2e4')!)),
+      // Player (black) moved e5 but no comment yet — evaluation is in flight.
+      GameStep(position: afterE4E5, sanMove: SanMove('e5', Move.parse('e7e5')!)),
+    ].lock,
+    meta: GameMeta(
+      createdAt: DateTime.now(),
+      rated: false,
+      variant: Variant.standard,
+      speed: Speed.classical,
+      perf: Perf.classical,
+    ),
+    initialFen: kInitialFEN,
+    status: GameStatus.started,
+    playerSide: Side.black,
+    stockfishLevel: StockfishLevel.level1,
+    humanPlayer: const Player(onGame: true),
+    enginePlayer: stockfishPlayer(),
+    practiceMode: true,
+    casual: true,
+  );
+  return OfflineComputerGameState(
+    game: game,
+    gameSessionId: const StringId('test-evaluating'),
+    stepCursor: 2,
+    isEvaluatingMove: true,
   );
 }
 
