@@ -564,7 +564,9 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
     Color? iconColor;
     IconData? icon;
 
-    if (practiceComment != null) {
+    if (gameState.finished) {
+      content = Text(context.l10n.gameOver, style: const TextStyle(fontStyle: .italic));
+    } else if (practiceComment != null) {
       final verdict = practiceComment.verdict;
       icon = practiceComment.icon;
       iconColor = practiceComment.color;
@@ -639,11 +641,7 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
             Text(practiceComment.evalAfter!, style: evalTextStyle),
         ],
       );
-    } else if (gameState.finished) {
-      // Game is over
-      content = Text(context.l10n.gameOver, style: const TextStyle(fontStyle: .italic));
     } else if (gameState.turn == gameState.game.playerSide) {
-      // Player's turn
       final cachedEval = gameState.cachedEvalString;
       content = Row(
         children: [
