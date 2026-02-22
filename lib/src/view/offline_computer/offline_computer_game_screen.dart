@@ -502,20 +502,39 @@ class _Player extends ConsumerWidget {
   }
 }
 
-class _PracticeCommentCard extends ConsumerWidget {
+class _PracticeCommentCard extends ConsumerStatefulWidget {
   const _PracticeCommentCard({required this.gameState});
 
   final OfflineComputerGameState gameState;
 
+  @override
+  ConsumerState<_PracticeCommentCard> createState() => _PracticeCommentCardState();
+}
+
+class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
   static const _cardHeight = 54.0;
 
+  // Last non-null comment, kept so we can show it with opacity while a new evaluation is in
+  // progress and no new comment has arrived yet.
+  PracticeComment? _previousComment;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void didUpdateWidget(_PracticeCommentCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.gameState.practiceComment != null && widget.gameState.practiceComment == null) {
+      _previousComment = oldWidget.gameState.practiceComment;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final prefs = ref.watch(offlineComputerGamePreferencesProvider);
     final hideBestMove = prefs.hideBestMove;
     final hideEvaluation = prefs.hideEvaluation;
+    final gameState = widget.gameState;
     final isEvaluatingMove = gameState.isEvaluatingMove;
-    final practiceComment = gameState.practiceComment;
+    final practiceComment =
+        gameState.practiceComment ?? (isEvaluatingMove ? _previousComment : null);
     final showingSuggestedMove = gameState.showingSuggestedMove;
     final evalTextStyle = TextStyle(
       fontWeight: FontWeight.w600,
@@ -603,8 +622,6 @@ class _PracticeCommentCard extends ConsumerWidget {
             Text(practiceComment.evalAfter!, style: evalTextStyle),
         ],
       );
-    } else if (isEvaluatingMove) {
-      content = Text(context.l10n.evaluatingYourMove);
     } else if (gameState.finished) {
       // Game is over
       content = Text(context.l10n.gameOver, style: const TextStyle(fontStyle: .italic));
@@ -622,15 +639,19 @@ class _PracticeCommentCard extends ConsumerWidget {
       content = const SizedBox.shrink();
     }
 
-    return Container(
-      height: _cardHeight,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: backgroundColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+    return AnimatedOpacity(
+      opacity: isEvaluatingMove && gameState.practiceComment == null ? 0.5 : 1.0,
+      duration: const Duration(milliseconds: 300),
+      child: Container(
+        height: _cardHeight,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: backgroundColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Align(alignment: Alignment.centerLeft, child: content),
       ),
-      child: Align(alignment: Alignment.centerLeft, child: content),
     );
   }
 }
