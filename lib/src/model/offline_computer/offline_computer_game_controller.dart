@@ -109,11 +109,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
   /// Load a game from storage.
   void loadGame(SavedOfflineComputerGame savedGame) {
     final game = savedGame.game;
-    state = OfflineComputerGameState(
-      game: game,
-      gameSessionId: StringId(savedGame.gameSessionId),
-      stepCursor: game.steps.length - 1,
-    );
+    state = OfflineComputerGameState(game: game, stepCursor: game.steps.length - 1);
 
     if (game.playable && state.turn == game.playerSide && (game.casual || game.practiceMode)) {
       _computeHints();
@@ -312,7 +308,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
           .toIList();
 
       final workAfter = EvalWork(
-        id: state.gameSessionId,
+        id: state.game.id,
         stockfishFlavor: _kComputerStockfishFlavor,
         variant: Variant.standard,
         threads: numberOfCoresForEvaluation,
@@ -453,7 +449,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
           .toIList();
 
       final work = MoveWork(
-        id: state.gameSessionId,
+        id: state.game.id,
         variant: Variant.standard,
         hashSize: evaluationService.maxMemory,
         initialPosition: state.game.initialPosition,
@@ -582,7 +578,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
           .toIList();
 
       final work = EvalWork(
-        id: state.gameSessionId,
+        id: state.game.id,
         stockfishFlavor: _kComputerStockfishFlavor,
         variant: Variant.standard,
         threads: numberOfCoresForEvaluation,
@@ -654,7 +650,6 @@ sealed class OfflineComputerGameState with _$OfflineComputerGameState {
 
   const factory OfflineComputerGameState({
     required OfflineComputerGame game,
-    required StringId gameSessionId,
     @Default(0) int stepCursor,
     @Default(null) NormalMove? promotionMove,
     @Default(false) bool isEngineThinking,
@@ -683,6 +678,7 @@ sealed class OfflineComputerGameState with _$OfflineComputerGameState {
     final sessionId = StringId('ocg_${_random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}');
     return OfflineComputerGameState(
       game: OfflineComputerGame(
+        id: sessionId,
         steps: [GameStep(position: position)].lock,
         status: GameStatus.started,
         initialFen: initialFen ?? kInitialFEN,
@@ -700,7 +696,6 @@ sealed class OfflineComputerGameState with _$OfflineComputerGameState {
         humanPlayer: const Player(onGame: true),
         enginePlayer: stockfishPlayer(),
       ),
-      gameSessionId: sessionId,
     );
   }
 

@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lichess_mobile/src/model/analysis/analysis_controller.dart';
 import 'package:lichess_mobile/src/model/common/chess.dart';
-import 'package:lichess_mobile/src/model/common/id.dart';
 import 'package:lichess_mobile/src/model/game/game_status.dart';
 import 'package:lichess_mobile/src/model/game/offline_computer_game.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_controller.dart';
@@ -138,7 +137,7 @@ class _BodyState extends ConsumerState<_Body> {
     final state = ref.read(offlineComputerGameControllerProvider);
     await ref
         .read(offlineComputerGameStorageProvider)
-        .save(SavedOfflineComputerGame(game: state.game, gameSessionId: state.gameSessionId.value));
+        .save(SavedOfflineComputerGame(game: state.game));
   }
 
   @override
@@ -153,7 +152,6 @@ class _BodyState extends ConsumerState<_Body> {
               context: context,
               builder: (context) => OfflineComputerGameResultDialog(
                 game: newGameState.game,
-                gameSessionId: newGameState.gameSessionId,
                 onNewGame: () {
                   Navigator.pop(context);
                   _showNewGameDialog();
@@ -366,7 +364,7 @@ class _BottomBar extends ConsumerWidget {
               AnalysisScreen.buildRoute(
                 context,
                 AnalysisOptions.pgn(
-                  id: gameState.gameSessionId,
+                  id: gameState.game.id,
                   orientation: gameState.game.playerSide,
                   pgn: gameState.game.makePgn(),
                   isComputerAnalysisAllowed: true,
@@ -859,15 +857,9 @@ class _PracticeSettingsSheet extends ConsumerWidget {
 }
 
 class OfflineComputerGameResultDialog extends StatelessWidget {
-  const OfflineComputerGameResultDialog({
-    required this.game,
-    required this.gameSessionId,
-    required this.onNewGame,
-    super.key,
-  });
+  const OfflineComputerGameResultDialog({required this.game, required this.onNewGame, super.key});
 
   final OfflineComputerGame game;
-  final StringId gameSessionId;
   final VoidCallback onNewGame;
 
   @override
@@ -908,7 +900,7 @@ class OfflineComputerGameResultDialog extends StatelessWidget {
               AnalysisScreen.buildRoute(
                 context,
                 AnalysisOptions.pgn(
-                  id: gameSessionId,
+                  id: game.id,
                   orientation: game.playerSide,
                   pgn: game.makePgn(),
                   isComputerAnalysisAllowed: true,

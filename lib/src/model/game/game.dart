@@ -24,9 +24,9 @@ part 'game.g.dart';
 
 final _dateFormat = DateFormat('yyyy.MM.dd');
 
-/// Common interface for playable and exported games.
+/// Common interface for all games.
 abstract mixin class BaseGame {
-  GameId get id;
+  StringId get id;
 
   GameMeta get meta;
 
@@ -174,7 +174,7 @@ abstract mixin class BaseGame {
     final pgn = node.makePgn(
       IMap({
         'Event': '${meta.rated ? 'Rated' : ''} ${meta.perf.title} game',
-        'Site': lichessUri('/$id').toString(),
+        if (id is GameId) 'Site': lichessUri('/$id').toString(),
         'Date': _dateFormat.format(meta.createdAt),
         'White':
             white.user?.name ??
@@ -207,6 +207,18 @@ abstract mixin class BaseGame {
     );
     return pgn;
   }
+}
+
+/// Common interface for playable and exported games from the server.
+abstract mixin class ServerGame implements BaseGame {
+  @override
+  GameId get id;
+}
+
+/// Common interface for local games (imported from PGN or created offline).
+abstract mixin class LocalGame implements BaseGame {
+  @override
+  StringId get id;
 }
 
 /// A mixin that provides methods to access game data at a specific step.

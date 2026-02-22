@@ -39,6 +39,7 @@ void main() {
 
   setUpAll(() {
     final game = OfflineComputerGame(
+      id: const StringId('test-game-id'),
       steps: [const GameStep(position: Chess.initial)].lock,
       meta: GameMeta(
         createdAt: DateTime.now(),
@@ -55,9 +56,7 @@ void main() {
       enginePlayer: stockfishPlayer(),
     );
     registerFallbackValue(game);
-    registerFallbackValue(
-      SavedOfflineComputerGame(game: game, gameSessionId: 'fallback-session-id'),
-    );
+    registerFallbackValue(SavedOfflineComputerGame(game: game));
   });
 
   group('Offline computer game', () {
@@ -452,8 +451,8 @@ void main() {
       // Return a saved game with moves already played (e4, e5)
       when(() => gameStorage.fetchGame()).thenAnswer(
         (_) async => SavedOfflineComputerGame(
-          gameSessionId: 'test-session-id',
           game: OfflineComputerGame(
+            id: const StringId('test-game-id'),
             steps: [
               const GameStep(position: Chess.initial),
               GameStep(
@@ -1627,6 +1626,7 @@ OfflineComputerGameState _stateWithPracticeComment(PracticeComment comment) {
     Setup.parseFen('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
   );
   final game = OfflineComputerGame(
+    id: const StringId('test-game-with-comment'),
     steps: [
       const GameStep(position: Chess.initial),
       GameStep(
@@ -1651,11 +1651,7 @@ OfflineComputerGameState _stateWithPracticeComment(PracticeComment comment) {
     practiceMode: true,
     casual: true,
   );
-  return OfflineComputerGameState(
-    game: game,
-    gameSessionId: const StringId('test-practice-comment'),
-    stepCursor: 1,
-  );
+  return OfflineComputerGameState(game: game, stepCursor: 1);
 }
 
 /// Builds a finished game state (checkmate) with practice mode on.
@@ -1667,6 +1663,7 @@ OfflineComputerGameState _stateGameFinished() {
     Setup.parseFen('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
   );
   final game = OfflineComputerGame(
+    id: const StringId('test-game-finished'),
     steps: [
       const GameStep(position: Chess.initial),
       GameStep(position: afterE4, sanMove: SanMove('e4', Move.parse('e2e4')!)),
@@ -1688,11 +1685,7 @@ OfflineComputerGameState _stateGameFinished() {
     practiceMode: true,
     casual: true,
   );
-  return OfflineComputerGameState(
-    game: game,
-    gameSessionId: const StringId('test-finished'),
-    stepCursor: 1,
-  );
+  return OfflineComputerGameState(game: game, stepCursor: 1);
 }
 
 /// Builds a game state where it is the player's (white's) turn.
@@ -1701,6 +1694,7 @@ OfflineComputerGameState _stateGameFinished() {
 /// (e.g., a cached evaluation) to test the eval display in the comment card.
 OfflineComputerGameState _statePlayerTurn({ComputerAnalysis? analysis}) {
   final game = OfflineComputerGame(
+    id: const StringId('test-player-turn'),
     steps: [GameStep(position: Chess.initial, computerAnalysis: analysis)].lock,
     meta: GameMeta(
       createdAt: DateTime.now(),
@@ -1718,11 +1712,7 @@ OfflineComputerGameState _statePlayerTurn({ComputerAnalysis? analysis}) {
     practiceMode: true,
     casual: true,
   );
-  return OfflineComputerGameState(
-    game: game,
-    gameSessionId: const StringId('test-player-turn'),
-    stepCursor: 0,
-  );
+  return OfflineComputerGameState(game: game, stepCursor: 0);
 }
 
 /// Builds a state where the player has just moved and evaluation is in progress.
@@ -1739,6 +1729,7 @@ OfflineComputerGameState _stateEvaluatingMove() {
     Setup.parseFen('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2'),
   );
   final game = OfflineComputerGame(
+    id: const StringId('test-evaluating-move'),
     steps: [
       const GameStep(position: Chess.initial),
       GameStep(position: afterE4, sanMove: SanMove('e4', Move.parse('e2e4')!)),
@@ -1761,12 +1752,7 @@ OfflineComputerGameState _stateEvaluatingMove() {
     practiceMode: true,
     casual: true,
   );
-  return OfflineComputerGameState(
-    game: game,
-    gameSessionId: const StringId('test-evaluating'),
-    stepCursor: 2,
-    isEvaluatingMove: true,
-  );
+  return OfflineComputerGameState(game: game, stepCursor: 2, isEvaluatingMove: true);
 }
 
 /// Helper to initialize a practice mode game.

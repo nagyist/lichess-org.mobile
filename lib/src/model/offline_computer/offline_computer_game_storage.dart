@@ -17,12 +17,7 @@ final _logger = Logger('OfflineComputerGameStorage');
 sealed class SavedOfflineComputerGame with _$SavedOfflineComputerGame {
   const SavedOfflineComputerGame._();
 
-  factory SavedOfflineComputerGame({
-    required OfflineComputerGame game,
-
-    /// The game session ID.
-    required String gameSessionId,
-  }) = _SavedOfflineComputerGame;
+  factory SavedOfflineComputerGame({required OfflineComputerGame game}) = _SavedOfflineComputerGame;
 
   factory SavedOfflineComputerGame.fromJson(Map<String, dynamic> json) =>
       _$SavedOfflineComputerGameFromJson(json);
