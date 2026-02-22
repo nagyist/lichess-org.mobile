@@ -349,7 +349,7 @@ class _BottomBar extends ConsumerWidget {
             onPressed: () => Navigator.of(context).push(
               AnalysisScreen.buildRoute(
                 context,
-                AnalysisOptions.standalone(
+                AnalysisOptions.pgn(
                   id: gameState.gameSessionId,
                   orientation: gameState.game.playerSide,
                   pgn: gameState.game.makePgn(),
@@ -871,7 +871,7 @@ class OfflineComputerGameResultDialog extends StatelessWidget {
             Navigator.of(context).push(
               AnalysisScreen.buildRoute(
                 context,
-                AnalysisOptions.standalone(
+                AnalysisOptions.pgn(
                   id: gameSessionId,
                   orientation: game.playerSide,
                   pgn: game.makePgn(),
