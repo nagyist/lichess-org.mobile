@@ -3,22 +3,28 @@ import 'dart:math';
 
 import 'package:collection/collection.dart';
 import 'package:dartchess/dartchess.dart';
+import 'package:deep_pick/deep_pick.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:lichess_mobile/src/model/analysis/analysis_controller.dart';
 import 'package:lichess_mobile/src/model/common/chess.dart';
 import 'package:lichess_mobile/src/model/common/eval.dart';
 import 'package:lichess_mobile/src/model/common/id.dart';
 import 'package:lichess_mobile/src/model/common/perf.dart';
 import 'package:lichess_mobile/src/model/common/service/move_feedback.dart';
+import 'package:lichess_mobile/src/model/common/socket.dart';
 import 'package:lichess_mobile/src/model/common/speed.dart';
+import 'package:lichess_mobile/src/model/common/uci.dart';
 import 'package:lichess_mobile/src/model/engine/engine.dart';
 import 'package:lichess_mobile/src/model/engine/evaluation_service.dart';
 import 'package:lichess_mobile/src/model/engine/work.dart';
 import 'package:lichess_mobile/src/model/explorer/opening_explorer.dart';
 import 'package:lichess_mobile/src/model/explorer/opening_explorer_preferences.dart';
 import 'package:lichess_mobile/src/model/explorer/opening_explorer_repository.dart';
+import 'package:lichess_mobile/src/model/explorer/tablebase.dart';
+import 'package:lichess_mobile/src/model/explorer/tablebase_repository.dart';
 import 'package:lichess_mobile/src/model/game/game.dart';
 import 'package:lichess_mobile/src/model/game/game_status.dart';
 import 'package:lichess_mobile/src/model/game/material_diff.dart';
@@ -27,6 +33,8 @@ import 'package:lichess_mobile/src/model/game/player.dart';
 import 'package:lichess_mobile/src/model/offline_computer/computer_analysis.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_storage.dart';
 import 'package:lichess_mobile/src/model/offline_computer/practice_comment.dart';
+import 'package:lichess_mobile/src/network/http.dart';
+import 'package:lichess_mobile/src/network/socket.dart';
 import 'package:logging/logging.dart';
 import 'package:multistockfish/multistockfish.dart';
 
@@ -39,31 +47,20 @@ final _logger = Logger('OfflineComputerGameController');
 /// The number of CPU cores to use for engine evaluation.
 final numberOfCoresForEvaluation = max(1, maxEngineCores - 1);
 
-/// Minimum depth required for a move evaluation in practice mode.
-const _kMinEvalDepth = kDebugMode ? 12 : 15;
-
-/// Search time for evaluations in practice mode.
-const _kSearchTime = Duration(seconds: 2);
-
-/// Number of multi-PV lines to request for evaluation.
-const _kEvaluationMultivpv = 3;
+/// Max search time for hints evaluation.
+const _kHintsMaxSearchTime = Duration(milliseconds: 3000);
 
 /// Ply threshold for opening phase. Below this, we check the master database
 /// to consider book moves as good regardless of engine evaluation.
 const _kOpeningPlyThreshold = 30;
 
+/// Minimum depth for which we consider the practice mode evaluation usable.
+const _kEvalMinDepth = kDebugMode ? 12 : 16;
+
 /// Stockfish flavor to use for the engine opponent and hint generation.
 ///
 /// We use Fairy-Stockfish here for the negative skill levels and variant support.
 const _kComputerStockfishFlavor = StockfishFlavor.variant;
-
-/// Normalizes a UCI move string for comparison by converting alternate castling
-/// notations to standard notation.
-///
-/// This handles the case where moves may use either:
-/// - Standard notation: e1g1 (king moves to destination)
-/// - Alternate notation: e1h1 (king captures rook, used by engines)
-String _normalizeUci(String uci) => altCastles[uci] ?? uci;
 
 final offlineComputerGameControllerProvider =
     NotifierProvider.autoDispose<OfflineComputerGameController, OfflineComputerGameState>(
@@ -72,11 +69,20 @@ final offlineComputerGameControllerProvider =
     );
 
 class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
+  late SocketClient socketClient;
+  StreamSubscription<SocketEvent>? _socketSubscription;
+  Timer? _getEvalTimer;
+
   @override
   OfflineComputerGameState build() {
+    socketClient = ref.watch(socketPoolProvider).open(AnalysisController.socketUri);
+    _socketSubscription?.cancel();
+    _socketSubscription = socketClient.stream.listen(_handleSocketEvent);
     final evaluationService = ref.watch(evaluationServiceProvider);
     ref.onDispose(() {
       evaluationService.quit();
+      _socketSubscription?.cancel();
+      _getEvalTimer?.cancel();
     });
     return OfflineComputerGameState.initial(
       stockfishLevel: StockfishLevel.defaultLevel,
@@ -157,7 +163,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     }
   }
 
-  void _applyMove(Move move) {
+  SanMove _applyMove(Move move) {
     final (newPos, newSan) = state.currentPosition.makeSan(Move.parse(move.uci)!);
     final sanMove = SanMove(newSan, move);
     final newStep = GameStep(
@@ -190,6 +196,8 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     }
 
     _moveFeedback(sanMove);
+
+    return sanMove;
   }
 
   /// Make a player move with practice mode evaluation.
@@ -204,14 +212,12 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     if (!state.game.practiceMode || !state.game.playable) return;
 
     var preMoveAnalysis = state.currentAnalysis;
-    final wasLoadingHint = state.isLoadingHint;
-
-    final positionBeforeFen = state.currentPosition.fen;
+    final positionBefore = state.currentPosition;
     final plyBeforeMove = state.currentPosition.ply;
 
     state = state.copyWith(isEvaluatingMove: true);
 
-    _applyMove(move);
+    final sanMove = _applyMove(move);
 
     final stepCursorAfterMove = state.stepCursor;
 
@@ -222,9 +228,9 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
 
     // If hints were still loading when we made the move, wait for them to complete
     // so we can get the "before" evaluation for comparison.
-    // Wait time must be longer than _kSearchTime to account for engine startup overhead.
-    if (wasLoadingHint || preMoveAnalysis?.eval == null) {
-      const maxWaitTime = Duration(seconds: 4);
+    // Wait time must be longer than _kHintsMaxSearchTime to account for engine startup overhead.
+    if (preMoveAnalysis?.eval == null) {
+      final maxWaitTime = _kHintsMaxSearchTime + const Duration(milliseconds: 1000);
       final deadline = DateTime.now().add(maxWaitTime);
       while (state.isLoadingHint && ref.mounted && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -247,47 +253,32 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     }
 
     final playerSide = state.game.playerSide;
-    final normalizedMoveUci = _normalizeUci(move.uci);
+    final normalizedMoveUci = sanMove.isCastles ? normalizeUci(move.uci) : move.uci;
     final matchingPv = preMoveEval.pvs.firstWhereOrNull(
-      (pv) => pv.moves.isNotEmpty && _normalizeUci(pv.moves.first) == normalizedMoveUci,
+      (pv) => pv.moves.isNotEmpty && pv.moves.first == normalizedMoveUci,
     );
 
-    // Fire-and-forget master database check (only in opening phase).
-    // Updates the comment verdict to goodMove if the move is a known book move.
-    final currentPosition = state.currentPosition;
-    if (plyBeforeMove < _kOpeningPlyThreshold) {
-      _fetchMasterDatabase(positionBeforeFen).then((masterEntry) {
-        if (!ref.mounted || masterEntry == null) return;
-        if (state.currentPosition != currentPosition) return;
-        final currentComment =
-            state.game.steps[stepCursorAfterMove].computerAnalysis?.practiceComment;
-        if (currentComment == null || currentComment.isBookMove) return;
-        final isBookMove = masterEntry.moves.any(
-          (m) => _normalizeUci(m.uci) == normalizedMoveUci && m.games > 1,
-        );
-        if (!isBookMove) return;
-        final updatedComment = currentComment.copyWith(
-          verdict: MoveVerdict.goodMove,
-          isBookMove: true,
-          bestMove: null,
-        );
-        _saveCommentToStep(stepCursorAfterMove, updatedComment);
-      });
+    // Makes or updates the comment verdict to goodMove if the move is a known book move.
+    if (state.game.meta.variant == Variant.standard && plyBeforeMove < _kOpeningPlyThreshold) {
+      _makeCommentFromOpeningDb(
+        sanMove,
+        stepCursor: stepCursorAfterMove,
+        positionBefore: positionBefore,
+        fromPosition: state.currentPosition,
+      );
     }
 
     // Fast path: move was in the pre-move PVs.
     if (matchingPv != null) {
-      _logger.info('Using PV for move: ${move.uci}');
-
       final comment = _createPracticeComment(
-        move: move,
+        sanMove: sanMove,
         preMoveEval: preMoveEval,
         winningChancesAfter: matchingPv.winningChances(playerSide),
         evalAfterString: matchingPv.evalString,
         playerSide: playerSide,
       );
 
-      _saveCommentToStep(stepCursorAfterMove, comment);
+      _setComment(stepCursorAfterMove, comment);
       state = state.copyWith(isEvaluatingMove: false);
 
       if (state.game.playable && state.turn != state.game.playerSide) {
@@ -296,8 +287,8 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
       return;
     }
 
-    // Slow path: move not in PVs, evaluate the resulting position.
-    _logger.info('Move not in PVs, evaluating: ${move.uci}');
+    // Slow path: move not in computed hints PVs, evaluate the resulting position.
+    _logger.info('Move not in computed hints PVs, evaluating: ${move.uci}');
 
     try {
       final evaluationService = ref.read(evaluationServiceProvider);
@@ -313,14 +304,39 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
         variant: Variant.standard,
         threads: numberOfCoresForEvaluation,
         hashSize: evaluationService.maxMemory,
-        searchTime: _kSearchTime,
-        multiPv: _kEvaluationMultivpv,
+        searchTime: const Duration(milliseconds: 2000),
+        // We want the fastest search here and we only need the eval
+        multiPv: 1,
         threatMode: false,
         initialPosition: state.game.initialPosition,
         steps: stepsAfter,
       );
 
-      final evalAfter = await evaluationService.findEval(workAfter, minDepth: _kMinEvalDepth);
+      final positionAfterMove = state.currentPosition;
+      final Completer<ClientEval?> evalCompleter = Completer();
+
+      // Launch engine eval and tablebase lookup in parallel.
+      // Fallback: if neither engine nor tablebase provide an eval in time, complete with null so
+      // the await below always finishes.
+      Timer(const Duration(seconds: 3), () {
+        if (!evalCompleter.isCompleted) {
+          evalCompleter.complete(null);
+        }
+      });
+      _getEval(workAfter, minSearchTime: const Duration(milliseconds: 500)).then((eval) {
+        if (!evalCompleter.isCompleted && eval != null) {
+          evalCompleter.complete(eval);
+        }
+      });
+      if (isTablebaseRelevant(positionAfterMove)) {
+        _fetchTablebaseEval(positionAfterMove).then((tablebaseEval) {
+          if (!evalCompleter.isCompleted && tablebaseEval != null) {
+            evalCompleter.complete(tablebaseEval);
+          }
+        });
+      }
+
+      final evalAfter = await evalCompleter.future;
 
       if (!ref.mounted) return;
 
@@ -328,14 +344,14 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
         _logger.info('Move eval: depth=${evalAfter.depth}, score=${evalAfter.evalString}');
 
         final comment = _createPracticeComment(
-          move: move,
+          sanMove: sanMove,
           preMoveEval: preMoveEval,
           winningChancesAfter: -evalAfter.winningChances(playerSide.opposite),
           evalAfterString: evalAfter.evalString,
           playerSide: playerSide,
         );
 
-        _saveCommentToStep(stepCursorAfterMove, comment);
+        _setComment(stepCursorAfterMove, comment);
       }
 
       state = state.copyWith(isEvaluatingMove: false);
@@ -354,21 +370,105 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     }
   }
 
+  /// Gets an evaluation by requesting at the same time the local engine and a cloud eval.
+  Future<ClientEval?> _getEval(EvalWork work, {Duration? minSearchTime}) {
+    final evaluationService = ref.read(evaluationServiceProvider);
+    final Completer<ClientEval?> completer = Completer();
+    // Fallback timer in case neither engine nor cloud eval return in time (should not happen for
+    // engine).
+    _getEvalTimer?.cancel();
+    _getEvalTimer = Timer(work.searchTime + const Duration(seconds: 2), () {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+    });
+    evaluationService
+        .findEval(work, depthThreshold: _kEvalMinDepth, minSearchTime: minSearchTime)
+        .then((eval) {
+          if (!completer.isCompleted && eval != null) {
+            completer.complete(eval);
+          }
+        });
+
+    if (state.game.meta.variant == Variant.standard && work.position.ply < _kOpeningPlyThreshold) {
+      _getCloudEval(work, numEvalLines: work.multiPv).then((cloudEval) {
+        if (!completer.isCompleted && cloudEval != null) {
+          completer.complete(cloudEval);
+        }
+      });
+    }
+
+    return completer.future;
+  }
+
+  void _handleSocketEvent(SocketEvent event) {
+    // not handling any events for now, but we keep the connection open
+    _logger.finer('Received socket event: ${event.topic}');
+  }
+
+  Future<CloudEval?> _getCloudEval(EvalWork work, {required int numEvalLines}) async {
+    CloudEval? eval;
+    try {
+      final uciPath = UciPath.fromUciMoves(
+        work.steps.map((s) => s.sanMove.normalizeUci(state.game.meta.variant)),
+      );
+
+      _logger.fine(
+        'Requesting cloud eval for ply ${work.position.ply} and fen ${work.position.fen}',
+      );
+
+      socketClient.send('evalGet', {
+        'fen': work.position.fen,
+        'path': uciPath.value,
+        'mpv': numEvalLines,
+      });
+      await for (final event
+          in socketClient.stream
+              .where((e) => e.topic == 'evalHit')
+              .timeout(const Duration(seconds: 2))) {
+        final path = pick(event.data, 'path').asStringOrThrow();
+        if (path != uciPath.value) {
+          continue;
+        }
+        final nodes = pick(event.data, 'knodes').asIntOrThrow() * 1000;
+        final depth = pick(event.data, 'depth').asIntOrThrow();
+        final pvs = pick(event.data, 'pvs')
+            .asListOrThrow(
+              (pv) => PvData(
+                moves: pv('moves').asStringOrThrow().split(' ').toIList(),
+                cp: pv('cp').asIntOrNull(),
+                mate: pv('mate').asIntOrNull(),
+              ),
+            )
+            .toIList();
+
+        _logger.fine('Got a cloud eval at ply ${work.position.ply} with depth $depth');
+
+        eval = CloudEval(depth: depth, nodes: nodes, pvs: pvs, position: work.position);
+        break;
+      }
+    } catch (e) {
+      _logger.fine('Could not get cloud eval: $e');
+    }
+
+    return eval;
+  }
+
   /// Creates a practice comment based on pre-move PV data and the post-move eval.
   PracticeComment _createPracticeComment({
-    required Move move,
+    required SanMove sanMove,
     required ClientEval preMoveEval,
     required double winningChancesAfter,
     required String? evalAfterString,
     required Side playerSide,
   }) {
-    final normalizedMoveUci = _normalizeUci(move.uci);
     final winningChancesBefore = preMoveEval.winningChances(playerSide);
     final shift = winningChancesBefore - winningChancesAfter;
 
     final bestPv = preMoveEval.pvs.first;
     final bestMove = bestPv.moves.isNotEmpty ? Move.parse(bestPv.moves.first) : null;
-    final playedMoveIsBest = bestMove != null && _normalizeUci(bestMove.uci) == normalizedMoveUci;
+    final playedMoveIsBest =
+        bestMove != null && bestMove.uci == sanMove.normalizeUci(state.game.meta.variant);
 
     final isGoodMove = shift < kGoodMoveThreshold;
 
@@ -378,7 +478,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
       for (final pv in preMoveEval.pvs.skip(1)) {
         if (pv.moves.isEmpty) continue;
         if (winningChancesBefore - pv.winningChances(playerSide) < kGoodMoveThreshold &&
-            _normalizeUci(pv.moves.first) != normalizedMoveUci) {
+            pv.moves.first != sanMove.normalizeUci(state.game.meta.variant)) {
           alternativeGoodMove = Move.parse(pv.moves.first);
           break;
         }
@@ -395,7 +495,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     final positionBeforeMove = state.game.stepAt(state.stepCursor - 1).position;
 
     SanMove? bestMoveSan;
-    if (!isGoodMove && !playedMoveIsBest && bestMove != null) {
+    if (!playedMoveIsBest && bestMove != null) {
       if (positionBeforeMove.isLegal(bestMove)) {
         final (_, san) = positionBeforeMove.makeSan(bestMove);
         bestMoveSan = SanMove(san, bestMove);
@@ -412,16 +512,43 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
 
     return PracticeComment(
       verdict: verdict,
-      bestMove: bestMoveSan,
-      alternativeGoodMove: alternativeGoodMoveSan,
-      winningChancesBefore: winningChancesBefore,
-      winningChancesAfter: winningChancesAfter,
+      moveSuggestion: bestMoveSan ?? alternativeGoodMoveSan,
       evalAfter: evalAfterString,
       isBookMove: false,
     );
   }
 
+  Future<void> _makeCommentFromOpeningDb(
+    SanMove sanMove, {
+    required int stepCursor,
+    required Position positionBefore,
+    required Position fromPosition,
+  }) async {
+    final masterEntry = await _fetchMasterDatabase(positionBefore.fen);
+    if (!ref.mounted || masterEntry == null) return;
+    if (state.currentPosition != fromPosition) return;
+    final currentComment = state.game.steps[stepCursor].computerAnalysis?.practiceComment;
+    if (currentComment?.isBookMove == true) return;
+    final isBookMove = masterEntry.moves.any(
+      (m) => m.uci == sanMove.normalizeUci(state.game.meta.variant) && m.games > 1,
+    );
+    if (!isBookMove) return;
+    if (currentComment != null) {
+      final updatedComment = currentComment.copyWith(
+        verdict: MoveVerdict.goodMove,
+        isBookMove: true,
+      );
+      _setComment(stepCursor, updatedComment);
+    } else {
+      _setComment(
+        stepCursor,
+        const PracticeComment(verdict: MoveVerdict.goodMove, isBookMove: true),
+      );
+    }
+  }
+
   /// Fetch the master database for the given FEN.
+  ///
   /// Returns null if the request fails (e.g., no connectivity) or times out.
   Future<OpeningExplorerEntry?> _fetchMasterDatabase(String fen) async {
     try {
@@ -433,6 +560,58 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
       _logger.fine('Failed to fetch master database: $e');
       return null;
     }
+  }
+
+  /// Fetches the tablebase eval for the given position.
+  ///
+  /// Returns null if the network request fails or the entry is not conclusive.
+  Future<ClientEval?> _fetchTablebaseEval(Position position) async {
+    try {
+      final client = ref.read(defaultClientProvider);
+      final entry = await TablebaseRepository(client).getTablebaseEntry(position.fen);
+      return _tablebaseEntryToCloudEval(entry, position);
+    } catch (e) {
+      _logger.fine('Could not get tablebase eval: $e');
+      return null;
+    }
+  }
+
+  /// Converts a tablebase entry to a [CloudEval].
+  ///
+  /// Returns null for non-conclusive entries (unknown, maybeWin, maybeLoss).
+  CloudEval? _tablebaseEntryToCloudEval(TablebaseEntry entry, Position position) {
+    final turn = position.turn;
+    final int? mate;
+    final int? cp;
+
+    switch (entry.category) {
+      case .win || .syzygyWin:
+        // Use dtm (distance to mate in half-moves) if available, fall back to 10.
+        final mateN = entry.dtm != null ? (entry.dtm!.abs() + 1) ~/ 2 : 10;
+        mate = turn == .white ? mateN : -mateN;
+        cp = null;
+      case .loss || .syzygyLoss:
+        final mateN = entry.dtm != null ? (entry.dtm!.abs() + 1) ~/ 2 : 10;
+        // Opponent wins.
+        mate = turn == .white ? -mateN : mateN;
+        cp = null;
+      case .draw || .cursedWin || .blessedLoss:
+        mate = null;
+        cp = 0;
+      default:
+        return null;
+    }
+
+    // Include the best tablebase move as the first PV move if available.
+    final bestMoveUci = entry.moves.firstOrNull?.uci;
+    final pvMoves = bestMoveUci != null ? [bestMoveUci].lock : IList<UCIMove>();
+
+    return CloudEval(
+      position: position,
+      depth: 99,
+      nodes: 0,
+      pvs: [PvData(moves: pvMoves, mate: mate, cp: cp)].lock,
+    );
   }
 
   Future<void> _playEngineMove() async {
@@ -583,14 +762,20 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
         variant: Variant.standard,
         threads: numberOfCoresForEvaluation,
         hashSize: evaluationService.maxMemory,
-        searchTime: _kSearchTime,
-        multiPv: _kEvaluationMultivpv,
+        searchTime: _kHintsMaxSearchTime,
+        // Good balance between fast search and more lines
+        multiPv: 3,
         threatMode: false,
         initialPosition: state.game.initialPosition,
         steps: steps,
       );
 
-      final finalEval = await evaluationService.findEval(work, minDepth: _kMinEvalDepth);
+      final finalEval = await _getEval(
+        work,
+        // Let's use a longer minimal search here because of the multipv and because it is computed
+        // during player's turn
+        minSearchTime: const Duration(milliseconds: 1500),
+      );
 
       if (!ref.mounted) return;
 
@@ -639,7 +824,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
   }
 
   /// Saves a practice comment on the game step at [stepIndex].
-  void _saveCommentToStep(int stepIndex, PracticeComment comment) {
+  void _setComment(int stepIndex, PracticeComment comment) {
     _setStepAnalysis(stepIndex, ComputerAnalysis(practiceComment: comment));
   }
 }
@@ -681,7 +866,7 @@ sealed class OfflineComputerGameState with _$OfflineComputerGameState {
         id: sessionId,
         steps: [GameStep(position: position)].lock,
         status: GameStatus.started,
-        initialFen: initialFen ?? kInitialFEN,
+        initialFen: initialFen,
         meta: GameMeta(
           createdAt: DateTime.now(),
           rated: false,
