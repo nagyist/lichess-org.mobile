@@ -91,11 +91,16 @@ void main() {
       final boardSize = tester.getSize(find.byType(Chessboard));
 
       if (isPortrait) {
-        final expectedBoardSize = isTablet ? surface.width - 32.0 : surface.width;
+        // isShortVerticalScreen uses viewPadding=0 in tests, kToolbarHeight=56, kBottomBarHeight=56
+        final isShortScreen =
+            surface.height - surface.width - kToolbarHeight - kBottomBarHeight <
+            kSmallHeightMinusBoard;
+        final baseBoardSize = isTablet ? surface.width - 32.0 : surface.width;
+        final expectedBoardSize = isShortScreen ? baseBoardSize - 16.0 : baseBoardSize;
         expect(
           boardSize,
           Size(expectedBoardSize, expectedBoardSize),
-          reason: 'Board size should match surface width on $surface',
+          reason: 'Board size should be $expectedBoardSize on $surface',
         );
       } else {
         final topTableSize = tester.getSize(find.byKey(const ValueKey('top_table')));

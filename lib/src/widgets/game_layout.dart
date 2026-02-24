@@ -253,21 +253,23 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
           );
         } else {
           final defaultBoardSize = constraints.biggest.shortestSide;
-          final double boardSize = isTablet
+          double effectiveBoarSize = isTablet
               ? defaultBoardSize - kTabletBoardTableSidePadding * 2
               : defaultBoardSize;
 
           // vertical space left on portrait mode to check if we can display the
           // move list
-          final verticalSpaceLeftBoardOnPortrait = constraints.biggest.height - boardSize;
+          final isShortScreen = isShortVerticalScreen(context);
+
+          if (isShortScreen) {
+            effectiveBoarSize -= 16;
+          }
 
           return Column(
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (boardPrefs.moveListDisplay &&
-                  slicedMoves != null &&
-                  verticalSpaceLeftBoardOnPortrait >= kSmallHeightMinusBoard)
+              if (boardPrefs.moveListDisplay && slicedMoves != null && !isShortScreen)
                 if (widget.zenMode)
                   // display empty move list to keep the layout consistent in zen mode
                   const MoveList(type: MoveListType.inline, slicedMoves: [], currentMoveIndex: 0)
@@ -292,7 +294,7 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
                     ? const EdgeInsets.symmetric(horizontal: kTabletBoardTableSidePadding)
                     : EdgeInsets.zero,
                 child: BoardWidget(
-                  size: boardSize,
+                  size: effectiveBoarSize,
                   fen: fen,
                   orientation: widget.orientation,
                   gameData: gameData,

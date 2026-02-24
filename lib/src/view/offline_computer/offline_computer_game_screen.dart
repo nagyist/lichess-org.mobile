@@ -21,6 +21,7 @@ import 'package:lichess_mobile/src/utils/focus_detector.dart';
 import 'package:lichess_mobile/src/utils/immersive_mode.dart';
 import 'package:lichess_mobile/src/utils/l10n_context.dart';
 import 'package:lichess_mobile/src/utils/navigation.dart';
+import 'package:lichess_mobile/src/utils/screen.dart';
 import 'package:lichess_mobile/src/view/analysis/analysis_screen.dart';
 import 'package:lichess_mobile/src/widgets/adaptive_action_sheet.dart';
 import 'package:lichess_mobile/src/widgets/adaptive_bottom_sheet.dart';
@@ -442,6 +443,8 @@ class _Player extends ConsumerWidget {
         ? gameState.currentMaterialDiff(side)
         : null;
 
+    final isShortScreen = isShortVerticalScreen(context);
+
     if (isStockfish) {
       return Row(
         children: [
@@ -496,11 +499,21 @@ class _Player extends ConsumerWidget {
       children: [
         if (game.practiceMode) ...[
           Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(practiceStatusLabel ?? ''),
+            padding: isShortScreen
+                ? const EdgeInsets.only(bottom: 4.0)
+                : const EdgeInsets.only(bottom: 8),
+            child: Text(
+              practiceStatusLabel ?? '',
+              style: TextStyle(
+                fontSize: isShortScreen ? 11 : null,
+                fontStyle: FontStyle.italic,
+                color: textShade(context, 0.8),
+                height: isShortScreen ? 1.0 : null,
+              ),
+            ),
           ),
           _PracticeCommentCard(gameState: gameState),
-          const SizedBox(height: 8),
+          SizedBox(height: isShortScreen ? 4.0 : 8.0),
         ],
         Row(
           mainAxisSize: .max,
@@ -527,8 +540,6 @@ class _PracticeCommentCard extends ConsumerStatefulWidget {
 }
 
 class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
-  static const _cardHeight = 54.0;
-
   // Last non-null comment, kept so we can show it with opacity while a new evaluation is in
   // progress and no new comment has arrived yet.
   PracticeComment? _previousComment;
@@ -551,11 +562,14 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
     final practiceComment =
         gameState.practiceComment ?? (isEvaluatingMove ? _previousComment : null);
     final showingSuggestedMove = gameState.showingSuggestedMove;
+    final isShortScreen = isShortVerticalScreen(context);
     final evalTextStyle = TextStyle(
       fontWeight: FontWeight.w600,
-      fontSize: 14,
+      fontSize: isShortScreen ? 12 : 14,
       color: textShade(context, 0.6),
     );
+
+    final cardHeight = isShortScreen ? 40.0 : 54.0;
 
     Widget content;
     Color? backgroundColor;
@@ -656,7 +670,7 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
       opacity: isEvaluatingMove && gameState.practiceComment == null ? 0.5 : 1.0,
       duration: const Duration(milliseconds: 300),
       child: Container(
-        height: _cardHeight,
+        height: cardHeight,
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
