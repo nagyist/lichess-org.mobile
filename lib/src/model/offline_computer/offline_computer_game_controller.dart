@@ -33,6 +33,7 @@ import 'package:lichess_mobile/src/model/game/player.dart';
 import 'package:lichess_mobile/src/model/offline_computer/computer_analysis.dart';
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_storage.dart';
 import 'package:lichess_mobile/src/model/offline_computer/practice_comment.dart';
+import 'package:lichess_mobile/src/model/offline_computer/tablebase_eval.dart';
 import 'package:lichess_mobile/src/network/http.dart';
 import 'package:lichess_mobile/src/network/socket.dart';
 import 'package:logging/logging.dart';
@@ -621,49 +622,11 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
     try {
       final client = ref.read(defaultClientProvider);
       final entry = await TablebaseRepository(client).getTablebaseEntry(position.fen);
-      return _tablebaseEntryToCloudEval(entry, position);
+      return tablebaseEntryToCloudEval(entry, position);
     } catch (e) {
       _logger.fine('Could not get tablebase eval: $e');
       return null;
     }
-  }
-
-  /// Converts a tablebase entry to a [CloudEval].
-  ///
-  /// Returns null for non-conclusive entries (unknown, maybeWin, maybeLoss).
-  CloudEval? _tablebaseEntryToCloudEval(TablebaseEntry entry, Position position) {
-    final turn = position.turn;
-    final int? mate;
-    final int? cp;
-
-    switch (entry.category) {
-      case .win || .syzygyWin:
-        // Use dtm (distance to mate in half-moves) if available, fall back to 10.
-        final mateN = entry.dtm != null ? (entry.dtm!.abs() + 1) ~/ 2 : 10;
-        mate = turn == .white ? mateN : -mateN;
-        cp = null;
-      case .loss || .syzygyLoss:
-        final mateN = entry.dtm != null ? (entry.dtm!.abs() + 1) ~/ 2 : 10;
-        // Opponent wins.
-        mate = turn == .white ? -mateN : mateN;
-        cp = null;
-      case .draw || .cursedWin || .blessedLoss:
-        mate = null;
-        cp = 0;
-      default:
-        return null;
-    }
-
-    // Include the best tablebase move as the first PV move if available.
-    final bestMoveUci = entry.moves.firstOrNull?.uci;
-    final pvMoves = bestMoveUci != null ? [bestMoveUci].lock : IList<UCIMove>();
-
-    return CloudEval(
-      position: position,
-      depth: 99,
-      nodes: 0,
-      pvs: [PvData(moves: pvMoves, mate: mate, cp: cp)].lock,
-    );
   }
 
   Future<void> _playEngineMove() async {
@@ -949,9 +912,6 @@ sealed class OfflineComputerGameState with _$OfflineComputerGameState {
       (game.steps.length >= 2
           ? game.steps[game.steps.length - 2].computerAnalysis?.practiceComment
           : null);
-
-  /// The cached evaluation string for the current position.
-  String? get cachedEvalString => currentAnalysis?.evalString;
 
   /// The hint moves for the current position.
   IList<Move>? get hintMoves => currentAnalysis?.hintMoves;

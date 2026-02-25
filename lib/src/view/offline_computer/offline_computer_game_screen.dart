@@ -587,6 +587,7 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
       content = Text(context.l10n.gameOver, style: const TextStyle(fontStyle: .italic));
     } else if (practiceComment != null) {
       final verdict = practiceComment.verdict;
+      final eval = gameState.currentAnalysis?.evalString;
       icon = practiceComment.icon;
       iconColor = practiceComment.color;
       backgroundColor = practiceComment.color.withValues(alpha: 0.1);
@@ -656,17 +657,17 @@ class _PracticeCommentCardState extends ConsumerState<_PracticeCommentCard> {
               ],
             ),
           ),
-          if (practiceComment.evalAfter != null && !hideEvaluation)
-            Text(practiceComment.evalAfter!, style: evalTextStyle),
+          if ((eval ?? practiceComment.evalAfter) != null && !hideEvaluation)
+            Text(eval ?? practiceComment.evalAfter!, style: evalTextStyle),
         ],
       );
     } else if (gameState.turn == gameState.game.playerSide) {
-      final cachedEval = gameState.cachedEvalString;
+      final eval = gameState.currentAnalysis?.evalString;
       content = Row(
         children: [
           const Spacer(),
           if (!hideEvaluation)
-            if (cachedEval != null) Text(cachedEval, style: evalTextStyle),
+            if (eval != null) Text(eval, style: evalTextStyle),
         ],
       );
     } else {
