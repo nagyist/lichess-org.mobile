@@ -60,6 +60,7 @@ void main() {
       final app = await makeTestProviderScopeApp(
         tester,
         home: const OpeningExplorerScreen(options: options),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
@@ -99,13 +100,17 @@ void main() {
       final app = await makeTestProviderScopeApp(
         tester,
         home: const OpeningExplorerScreen(options: options),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
           }),
         },
         defaultPreferences: {
-          SessionPreferencesStorage.key(PrefCategory.openingExplorer.storageKey, null): jsonEncode(
+          SessionPreferencesStorage.key(
+            PrefCategory.openingExplorer.storageKey,
+            authUser,
+          ): jsonEncode(
             OpeningExplorerPrefs.defaults().copyWith(db: OpeningDatabase.lichess).toJson(),
           ),
         },

@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:lichess_mobile/src/constants.dart';
+import 'package:lichess_mobile/src/model/auth/auth_controller.dart';
+import 'package:lichess_mobile/src/model/common/id.dart';
+import 'package:lichess_mobile/src/model/user/user.dart';
 import 'package:lichess_mobile/src/network/http.dart';
 import 'package:lichess_mobile/src/view/explorer/explorer_view.dart';
 import 'package:lichess_mobile/src/view/explorer/opening_explorer_view.dart';
@@ -13,6 +16,9 @@ import '../../test_helpers.dart';
 import '../../test_provider_scope.dart';
 
 void main() {
+  final user = LightUser(id: UserId.fromUserName('John'), name: 'John');
+  final authUser = AuthUser(user: user, token: 'test-token');
+
   final mockClient = MockClient((request) {
     if (request.url.host == kLichessOpeningExplorerHost) {
       if (request.url.path == '/masters') {
@@ -41,6 +47,7 @@ void main() {
             isComputerAnalysisAllowed: true,
           ),
         ),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
@@ -70,6 +77,7 @@ void main() {
             isComputerAnalysisAllowed: true,
           ),
         ),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
@@ -99,6 +107,7 @@ void main() {
             isComputerAnalysisAllowed: true,
           ),
         ),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
@@ -126,6 +135,7 @@ void main() {
             isComputerAnalysisAllowed: true,
           ),
         ),
+        authUser: authUser,
         overrides: {
           httpClientFactoryProvider: httpClientFactoryProvider.overrideWith((ref) {
             return FakeHttpClientFactory(() => mockClient);
