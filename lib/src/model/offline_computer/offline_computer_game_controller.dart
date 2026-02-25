@@ -34,7 +34,6 @@ import 'package:lichess_mobile/src/model/offline_computer/computer_analysis.dart
 import 'package:lichess_mobile/src/model/offline_computer/offline_computer_game_storage.dart';
 import 'package:lichess_mobile/src/model/offline_computer/practice_comment.dart';
 import 'package:lichess_mobile/src/model/offline_computer/tablebase_eval.dart';
-import 'package:lichess_mobile/src/network/http.dart';
 import 'package:lichess_mobile/src/network/socket.dart';
 import 'package:logging/logging.dart';
 import 'package:multistockfish/multistockfish.dart';
@@ -620,8 +619,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
   /// Returns null if the network request fails or the entry is not conclusive.
   Future<ClientEval?> _fetchTablebaseEval(Position position) async {
     try {
-      final client = ref.read(defaultClientProvider);
-      final entry = await TablebaseRepository(client).getTablebaseEntry(position.fen);
+      final entry = await ref.read(tablebaseRepositoryProvider).getTablebaseEntry(position.fen);
       return tablebaseEntryToCloudEval(entry, position);
     } catch (e) {
       _logger.fine('Could not get tablebase eval: $e');

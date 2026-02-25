@@ -2,6 +2,7 @@ import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
+import 'package:lichess_mobile/src/constants.dart';
 import 'package:lichess_mobile/src/network/http.dart';
 import 'package:lichess_mobile/src/view/explorer/explorer_view.dart';
 import 'package:lichess_mobile/src/view/explorer/opening_explorer_view.dart';
@@ -13,12 +14,12 @@ import '../../test_provider_scope.dart';
 
 void main() {
   final mockClient = MockClient((request) {
-    if (request.url.host == 'explorer.lichess.ovh') {
+    if (request.url.host == kLichessOpeningExplorerHost) {
       if (request.url.path == '/masters') {
         return mockResponse(mastersOpeningExplorerResponse, 200);
       }
     }
-    if (request.url.host == 'tablebase.lichess.ovh') {
+    if (request.url.host == kLichessTablebaseHost) {
       if (request.url.path == '/standard') {
         return mockResponse(tablebaseResponse, 200);
       }
