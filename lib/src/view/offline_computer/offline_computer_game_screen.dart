@@ -144,6 +144,7 @@ class _BodyState extends ConsumerState<_Body> {
   @override
   Widget build(BuildContext context) {
     final gameState = ref.watch(offlineComputerGameControllerProvider);
+    final boardColorScheme = ref.watch(boardPreferencesProvider).boardTheme.colors;
 
     ref.listen(offlineComputerGameControllerProvider, (previous, newGameState) {
       if (previous?.finished == false && newGameState.finished) {
@@ -241,7 +242,7 @@ class _BodyState extends ConsumerState<_Body> {
                     ),
                     fen: gameState.currentPosition.fen,
                     lastMove: gameState.lastMove,
-                    shapes: _buildBoardShapes(gameState),
+                    shapes: _buildBoardShapes(gameState, boardColorScheme),
                     interactiveBoardParams: (
                       variant: Variant.standard,
                       position: gameState.currentPosition,
@@ -282,12 +283,18 @@ class _BodyState extends ConsumerState<_Body> {
     );
   }
 
-  ISet<Shape>? _buildBoardShapes(OfflineComputerGameState gameState) {
+  ISet<Shape>? _buildBoardShapes(
+    OfflineComputerGameState gameState,
+    ChessboardColorScheme colorScheme,
+  ) {
     final shapes = <Shape>{};
 
     // Add hint circle if showing
     if (gameState.hintSquare != null) {
-      shapes.add(Circle(color: const Color(0x664D9E4D), orig: gameState.hintSquare!));
+      final ds = colorScheme.darkSquare;
+      final isGreenBoard = ds.g > ds.r && ds.g > ds.b;
+      final hintColor = isGreenBoard ? const Color(0x990099C8) : const Color(0x994D9E4D);
+      shapes.add(Circle(color: hintColor, orig: gameState.hintSquare!));
     }
 
     // Add suggested move arrow if showing
