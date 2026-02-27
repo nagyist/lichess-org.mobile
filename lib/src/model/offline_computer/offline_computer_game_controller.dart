@@ -248,16 +248,13 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
       return;
     }
 
-    // If hints were still loading when we made the move, wait for them to complete
-    // so we can get the "before" evaluation for comparison.
+    // If hints were still loading when we made the move, wait for them to complete so we can get
+    // the "before" evaluation for comparison.
     // Wait time must be longer than _kHintsMaxSearchTime to account for engine startup overhead.
-    if (state.isLoadingHint && preMoveAnalysis?.eval == null) {
+    if (state.isLoadingHint) {
       final maxWaitTime = _kHintsMaxSearchTime + const Duration(milliseconds: 1000);
       final deadline = DateTime.now().add(maxWaitTime);
-      while (state.isLoadingHint &&
-          state.game.steps[cursorBeforeMove].computerAnalysis?.eval == null &&
-          ref.mounted &&
-          DateTime.now().isBefore(deadline)) {
+      while (state.isLoadingHint && ref.mounted && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
 
@@ -757,6 +754,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
   Future<void> _computeHints() async {
     if (!state.game.casual && !state.game.practiceMode) return;
     if (!state.game.playable || state.turn != state.game.playerSide) return;
+    if (state.currentAnalysis?.eval != null) return;
 
     final hintStepCursor = state.stepCursor;
     final hintPosition = state.currentPosition;
