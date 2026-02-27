@@ -52,7 +52,7 @@ final numberOfCoresForEvaluation = max(1, maxEngineCores - 1);
 const _kOpeningPlyThreshold = 30;
 
 /// Max search time for hints evaluation.
-const _kHintsMaxSearchTime = Duration(milliseconds: 5000);
+const _kHintsMaxSearchTime = Duration(milliseconds: 3000);
 
 /// Depth threshold for using an engine evaluation for hints.
 ///
@@ -72,7 +72,7 @@ const _kMoveEvalMaxSearchTime = Duration(milliseconds: 2000);
 /// Depth threshold for using an engine evaluation for move evaluation in practice mode.
 ///
 /// The search is done with multipv=1 here, so we can reach higher depths.
-const _kMoveEvalMinDepth = kDebugMode ? 18 : 20;
+const _kMoveEvalMinDepth = kDebugMode ? 14 : 18;
 
 /// Stockfish flavor to use for the engine opponent and hint generation.
 ///
@@ -352,7 +352,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
 
       if (evalAfter != null) {
         _logger.info(
-          'Move eval computed: depth=${evalAfter.depth}, searchTime=${evalAfter is LocalEval ? evalAfter.searchTime : null} nodes=${evalAfter.nodes} score=${evalAfter.evalString}',
+          'Move eval computed for ply=${workAfter.position.ply} depth=${evalAfter.depth}, searchTime=${evalAfter is LocalEval ? evalAfter.searchTime : null} nodes=${evalAfter.nodes} score=${evalAfter.evalString}',
         );
 
         final comment = _createPracticeComment(
@@ -777,8 +777,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
         threads: numberOfCoresForEvaluation,
         hashSize: evaluationService.maxMemory,
         searchTime: _kHintsMaxSearchTime,
-        // Good balance between fast search and more lines
-        multiPv: 3,
+        multiPv: 2, // 2 lines of hints to show an alternative move
         threatMode: false,
         initialPosition: state.game.initialPosition,
         steps: steps,
@@ -795,7 +794,7 @@ class OfflineComputerGameController extends Notifier<OfflineComputerGameState> {
       if (!ref.mounted) return;
 
       _logger.info(
-        'Hints computed: depth=${finalEval?.depth}, searchTime=${finalEval is LocalEval ? finalEval.searchTime : null} nodes=${finalEval?.nodes} score=${finalEval?.evalString}',
+        'Hints computed for ply=${work.position.ply} depth=${finalEval?.depth}, searchTime=${finalEval is LocalEval ? finalEval.searchTime : null} nodes=${finalEval?.nodes} score=${finalEval?.evalString}',
       );
 
       // Guard against a stale call: a takeback may have removed steps so the cursor is
